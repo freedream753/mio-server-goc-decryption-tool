@@ -1,10 +1,16 @@
 [package]
 name = "goc-solver"
-version = "0.0.0"
+version = "1.0.0"
 description = "GOC Caesar Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
 edition = "2021"
+
+# 本地 vendor 修改版：图标路径不再 canonicalize，修复 llvm-rc 无法解析 \\?\ 长路径的问题
+[patch.crates-io]
+tauri-winres = { path = "vendor/tauri-winres" }
+# 本地 vendor 修改版：aarch64 资源编译 target 改用 llvm-windres 支持的 triple 形式
+embed-resource = { path = "vendor/embed-resource" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

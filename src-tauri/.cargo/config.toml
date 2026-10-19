@@ -7,3 +7,14 @@ target-dir = "D:/pot-target"
 [target.x86_64-pc-windows-gnu]
 linker = "D:/mingw-seh/mingw64/bin/x86_64-w64-mingw32-gcc.exe"
 ar = "D:/mingw-seh/mingw64/bin/ar.exe"
+
+# llvm-mingw 工具链：用于 i686 / aarch64（gnullvm 目标，Rust 官方配套 llvm-mingw）
+[target.i686-pc-windows-gnullvm]
+linker = "D:/llvm-mingw/bin/i686-w64-mingw32-gcc.exe"
+ar = "D:/llvm-mingw/bin/i686-w64-mingw32-ar.exe"
+# windows 0.48 时代无 gnullvm import lib，复用 gnu 版（COFF import lib 与 CRT 无关）
+rustflags = ["-L", "native=winlibs/i686"]
+
+[target.aarch64-pc-windows-gnullvm]
+linker = "D:/llvm-mingw/bin/aarch64-w64-mingw32-gcc.exe"
+ar = "D:/llvm-mingw/bin/aarch64-w64-mingw32-ar.exe"

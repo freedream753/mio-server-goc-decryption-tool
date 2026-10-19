@@ -8,7 +8,7 @@
     },
     "package": {
         "productName": "GOC解题妙妙小工具",
-        "version": "3.0.7"
+        "version": "1.0.0"
     },
     "tauri": {
         "allowlist": {
