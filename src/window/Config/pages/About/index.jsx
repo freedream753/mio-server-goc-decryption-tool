@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 // 原项目仓库（GPL-3.0）
 const UPSTREAM_REPO = 'https://github.com/pot-app/pot-desktop';
-// 本修改版仓库：创建 GitHub 仓库后把下面的地址替换成你自己的
-const FORK_REPO = 'https://github.com/your-username/goc-solver';
+// 本修改版仓库
+const FORK_REPO = 'https://github.com/freedream753/mio-server-goc-decryption-tool';
 
 export default function About() {
     const { t } = useTranslation();
