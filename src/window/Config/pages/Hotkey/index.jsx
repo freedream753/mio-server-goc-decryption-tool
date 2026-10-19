@@ -46,7 +46,7 @@ const keyMap = {
 };
 
 export default function Hotkey() {
-    const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', '');
+    const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', 'Alt+C');
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();

@@ -176,7 +176,7 @@
                 "license_title": "开源协议（GPL-3.0）",
                 "license_desc": "原项目 pot-desktop 采用 GNU General Public License v3.0（GPL-3.0）协议开源。\n因此本修改版同样以 GPL-3.0 协议发布：你可以自由使用、学习、修改和分发本软件，但分发时必须继续采用 GPL-3.0 协议、保留原版权与许可声明，并公开完整的修改后源代码。",
                 "links_title": "相关链接",
-                "links_fork": "本修改版源码仓库"
+                "links_fork": "freedream753/mio-server-goc-decryption-tool（本修改版）"
             }
         },
         "updater": {

@@ -13,8 +13,9 @@ where
             match get(name) {
                 Some(v) => v.as_str().unwrap().to_string(),
                 None => {
-                    set(name, "");
-                    String::new()
+                    // 未配置过热键时写入默认值（左 Alt+C，Windows 全局热键不区分左右 Alt）
+                    set(name, "Alt+C");
+                    "Alt+C".to_string()
                 }
             }
         } else {
