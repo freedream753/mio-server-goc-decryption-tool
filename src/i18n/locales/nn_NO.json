@@ -1,0 +1,26 @@
+{
+    "translation": {
+        "common": {
+            "ok": "Ok"
+        },
+        "languages": {},
+        "config": {
+            "general": {
+                "event": {},
+                "theme": {},
+                "font_size": {}
+            },
+            "translate": {
+                "font_size": {}
+            },
+            "backup": {},
+            "recognize": {},
+            "hotkey": {},
+            "about": {},
+            "history": {}
+        },
+        "translate": {},
+        "updater": {},
+        "recognize": {}
+    }
+}

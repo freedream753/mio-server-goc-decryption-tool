@@ -1,0 +1,9 @@
+# GNU 工具链配置：使用 SEH 版 MinGW（绕开损坏的 Windows SDK）
+# target-dir 用纯英文路径：MinGW 的 ld.exe 无法处理中文路径
+[build]
+target = "x86_64-pc-windows-gnu"
+target-dir = "D:/pot-target"
+
+[target.x86_64-pc-windows-gnu]
+linker = "D:/mingw-seh/mingw64/bin/x86_64-w64-mingw32-gcc.exe"
+ar = "D:/mingw-seh/mingw64/bin/ar.exe"

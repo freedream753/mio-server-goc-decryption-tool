@@ -1,0 +1,92 @@
+{
+    "build": {
+        "beforeDevCommand": "pnpm dev",
+        "beforeBuildCommand": "pnpm build",
+        "devPath": "http://localhost:1420",
+        "distDir": "../dist",
+        "withGlobalTauri": false
+    },
+    "package": {
+        "productName": "GOC解题妙妙小工具",
+        "version": "3.0.7"
+    },
+    "tauri": {
+        "allowlist": {
+            "all": false,
+            "shell": {
+                "all": true,
+                "open": ".*"
+            },
+            "path": {
+                "all": true
+            },
+            "window": {
+                "all": true
+            },
+            "clipboard": {
+                "readText": false,
+                "writeText": true
+            },
+            "globalShortcut": {
+                "all": true
+            },
+            "notification": {
+                "all": true
+            },
+            "os": {
+                "all": true
+            },
+            "protocol": {
+                "asset": true,
+                "assetScope": [
+                    "$CACHE/**",
+                    "$CONFIG/**"
+                ]
+            },
+            "fs": {
+                "all": true,
+                "scope": [
+                    "$APPCONFIG/**",
+                    "$APPCACHE/**"
+                ]
+            },
+            "dialog": {
+                "open": true
+            }
+        },
+        "bundle": {
+            "active": true,
+            "category": "Utility",
+            "copyright": "GPLv3",
+            "targets": "all",
+            "identifier": "com.goc.solver",
+            "longDescription": "OCR 识别英文字母并按凯撒密码位移3解密",
+            "shortDescription": "GOC解题妙妙小工具",
+            "externalBin": [],
+            "resources": [],
+            "icon": [
+                "icons/32x32.png",
+                "icons/128x128.png",
+                "icons/128x128@2x.png",
+                "icons/icon.icns",
+                "icons/icon.ico"
+            ]
+        },
+        "security": {
+            "csp": "default-src * data: ; img-src * 'self' asset: https: data: ; style-src * 'unsafe-inline'; worker-src 'self' blob: ; script-src * 'unsafe-eval';",
+            "devCsp": "default-src * data: ; img-src * 'self' asset: https: data: ; style-src * 'unsafe-inline'; worker-src 'self' blob: ; script-src * 'unsafe-eval';"
+        },
+        "windows": [
+            {
+                "title": "GOC解题妙妙小工具",
+                "label": "daemon",
+                "visible": false,
+                "url": "daemon.html"
+            }
+        ],
+        "systemTray": {
+            "iconPath": "icons/32x32.png",
+            "iconAsTemplate": true
+        }
+    }
+}
