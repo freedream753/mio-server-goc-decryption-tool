@@ -18,6 +18,7 @@ src-tauri/gen/schemas
 
 # Windows build artifacts
 *.exe
+src-tauri/*.obj
 
 # Editor directories and files
 .idea

@@ -1,6 +1,6 @@
 [package]
 name = "goc-solver"
-version = "1.0.0"
+version = "1.0.1"
 description = "GOC Caesar Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
@@ -11,6 +11,8 @@ edition = "2021"
 tauri-winres = { path = "vendor/tauri-winres" }
 # 本地 vendor 修改版：aarch64 资源编译 target 改用 llvm-windres 支持的 triple 形式
 embed-resource = { path = "vendor/embed-resource" }
+# 本地 vendor 修改版：GNU 工具链也静态链接 WebView2Loader，exe 单文件分发无需携带 DLL
+webview2-com-sys = { path = "vendor/webview2-com-sys" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

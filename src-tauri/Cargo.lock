@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "goc-solver"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
@@ -5573,8 +5573,6 @@ dependencies = [
 [[package]]
 name = "webview2-com-sys"
 version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aac48ef20ddf657755fdcda8dfed2a7b4fc7e4581acce6fe9b88c3d64f29dee7"
 dependencies = [
  "regex",
  "serde",

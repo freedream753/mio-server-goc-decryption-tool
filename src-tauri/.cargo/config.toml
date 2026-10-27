@@ -1,20 +1,9 @@
-# GNU 工具链配置：使用 SEH 版 MinGW（绕开损坏的 Windows SDK）
-# target-dir 用纯英文路径：MinGW 的 ld.exe 无法处理中文路径
-[build]
-target = "x86_64-pc-windows-gnu"
-target-dir = "D:/pot-target"
+# 国内 crates.io 镜像（rsproxy），加速并稳定 Rust 依赖下载
+[source.crates-io]
+replace-with = "rsproxy-sparse"
 
-[target.x86_64-pc-windows-gnu]
-linker = "D:/mingw-seh/mingw64/bin/x86_64-w64-mingw32-gcc.exe"
-ar = "D:/mingw-seh/mingw64/bin/ar.exe"
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
 
-# llvm-mingw 工具链：用于 i686 / aarch64（gnullvm 目标，Rust 官方配套 llvm-mingw）
-[target.i686-pc-windows-gnullvm]
-linker = "D:/llvm-mingw/bin/i686-w64-mingw32-gcc.exe"
-ar = "D:/llvm-mingw/bin/i686-w64-mingw32-ar.exe"
-# windows 0.48 时代无 gnullvm import lib，复用 gnu 版（COFF import lib 与 CRT 无关）
-rustflags = ["-L", "native=winlibs/i686"]
-
-[target.aarch64-pc-windows-gnullvm]
-linker = "D:/llvm-mingw/bin/aarch64-w64-mingw32-gcc.exe"
-ar = "D:/llvm-mingw/bin/aarch64-w64-mingw32-ar.exe"
+[net]
+git-fetch-with-cli = true
