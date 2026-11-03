@@ -29,3 +29,10 @@ src-tauri/*.obj
 *.njsproj
 *.sln
 *.sw?
+
+# Local working dirs (not part of the repo)
+__pycache__/
+release-assets/
+.trae-html-share-packages/
+新用例/
+老用例/

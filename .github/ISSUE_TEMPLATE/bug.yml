@@ -1,0 +1,47 @@
+name: Bug 报告
+description: 程序识别错误、功能异常或崩溃时请选这个
+labels: [ "bug" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填写以下信息，信息越完整问题越快定位。
+  - type: input
+    id: version
+    attributes:
+      label: 程序版本与架构
+      description: 结果窗口标题栏或下载的文件名，如 v1.0.3-x64
+      placeholder: 例：v1.0.3-x64
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 系统环境
+      description: Windows 版本，以及是否开启英伟达滤镜 / 游戏内增亮等
+      placeholder: 例：Windows 11 24H2，开启英伟达动态亮丽
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从启动程序到出现问题做了什么
+      placeholder: |
+        1. 游戏内打开解题页面
+        2. 按 Alt + C
+        3. 结果窗口显示……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果与实际结果
+      description: 期望看到什么，实际看到了什么（识别错误请附密文原样与识别输出）
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图与日志（可选）
+      description: 全屏截图或日志文件（托盘菜单「查看日志」可打开）
