@@ -1979,6 +1979,7 @@ dependencies = [
  "image 0.25.4",
  "log",
  "mouse_position",
+ "notify",
  "once_cell",
  "screenshots",
  "serde",

@@ -1,4 +1,5 @@
 import { appWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api';
 import { BrowserRouter } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 const warn = console.warn;
@@ -8,7 +9,6 @@ import { useTheme } from 'next-themes';
 import Screenshot from './window/Screenshot';
 import Recognize from './window/Recognize';
 import Result from './window/Result';
-import { store } from './utils/store';
 import Config from './window/Config';
 import { useConfig } from './hooks';
 import './style.css';
@@ -31,10 +31,6 @@ export default function App() {
     const { i18n } = useTranslation();
 
     useEffect(() => {
-        store.load();
-    }, []);
-
-    useEffect(() => {
         // 拦截快捷键并清理监听器，避免重复挂载后监听器泄漏
         const handler = async (e) => {
             let allowKeys = ['c', 'v', 'x', 'a', 'z', 'y'];
@@ -45,7 +41,11 @@ export default function App() {
                 e.preventDefault();
             }
             if (e.key === 'Escape') {
-                await appWindow.close();
+                if (appWindow.label === 'config') {
+                    await invoke('hide_config_window');
+                } else {
+                    await appWindow.close();
+                }
             }
         };
         document.addEventListener('keydown', handler);

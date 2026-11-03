@@ -8,6 +8,13 @@ use tauri_plugin_store::{Store, StoreBuilder};
 
 pub struct StoreWrapper(pub Mutex<Store<Wry>>);
 
+pub fn reload() -> Result<(), String> {
+    let app = APP.get().ok_or("App not initialized")?;
+    let state = app.state::<StoreWrapper>();
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    store.load().map_err(|e| e.to_string())
+}
+
 pub fn init_config(app: &mut tauri::App) {
     let config_path = config_dir().unwrap();
     let config_path = config_path.join(app.config().tauri.bundle.identifier.clone());

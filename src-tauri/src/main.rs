@@ -3,6 +3,7 @@
 
 mod cmd;
 mod config;
+mod config_watch;
 mod error;
 mod hotkey;
 mod screenshot;
@@ -103,6 +104,10 @@ fn main() {
             // Init Config
             info!("Init Config Store");
             init_config(app);
+            // File watching is optional and process-scoped, never window-scoped.
+            if let Err(e) = config_watch::start(app.handle()) {
+                warn!("Config file watcher unavailable: {}", e);
+            }
             // Register notification AUMID (Windows)
             #[cfg(target_os = "windows")]
             register_notification_aumid(app.config().tauri.bundle.identifier.clone());
@@ -131,7 +136,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            reload_store, cut_image, get_base64, log_event, register_shortcut_by_frontend, update_tray, screenshot, font_list,
+            reload_store, hide_config_window, cut_image, get_base64, log_event, register_shortcut_by_frontend, update_tray, screenshot, font_list,
             get_solve_result, show_result_window, reset_result_timer, save_correction,
             get_corrections, del_correction, begin_result_drag, hide_result_window, update_shortcut
         ])

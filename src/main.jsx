@@ -14,7 +14,9 @@ if (import.meta.env.PROD) {
     });
 }
 
-initStore().then(async () => {
+initStore().catch((error) => {
+    console.warn('Could not initialize configuration:', error);
+}).then(async () => {
     await initEnv();
     const rootElement = document.getElementById('root');
     const root = ReactDOM.createRoot(rootElement);

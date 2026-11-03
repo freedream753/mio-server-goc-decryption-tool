@@ -168,9 +168,20 @@ fn save_config_window_state(window: &tauri::Window) {
     }
 }
 
+pub fn hide_config_window() {
+    if let Some(app) = APP.get() {
+        if let Some(window) = app.get_window("config") {
+            save_config_window_state(&window);
+            let _ = window.hide();
+        }
+    }
+}
+
 pub fn config_window() {
     let (window, exists) = build_window("config", "GOC解题妙妙小工具");
     if exists {
+        let _ = window.show();
+        let _ = window.set_focus();
         return;
     }
     // tao v1 隐藏窗口的尺寸换算存在缩放 bug（内部 scale 恒为 1.0，150% 屏上
@@ -240,26 +251,47 @@ pub fn config_window() {
         }
     }
     // 三重保存：拖拽调整防抖 600ms 落盘，失焦/关闭立即保存；隐藏与最大化阶段不保存
-    let window_ = window.clone();
-    let (tx, rx) = std::sync::mpsc::channel::<(f64, f64)>();
-    std::thread::spawn(move || {
-        while let Ok(mut last) = rx.recv() {
-            while let Ok(v) = rx.recv_timeout(std::time::Duration::from_millis(600)) {
-                last = v;
+    // Do not retain the Window inside its own event listener.
+    let event_app = window.app_handle();
+    // Share one debounce worker across all config windows. Window event handlers
+    // may outlive the native window; retaining their sender must not leak a worker.
+    static SIZE_SENDER: once_cell::sync::OnceCell<std::sync::mpsc::Sender<(f64, f64)>> =
+        once_cell::sync::OnceCell::new();
+    let tx = SIZE_SENDER
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<(f64, f64)>();
+            std::thread::spawn(move || {
+                while let Ok(mut last) = rx.recv() {
+                    while let Ok(v) = rx.recv_timeout(std::time::Duration::from_millis(600)) {
+                        last = v;
+                    }
+                    set("config_window_size", vec![last.0, last.1]);
+                }
+            });
+            tx
+        })
+        .clone();
+    window.on_window_event(move |event| {
+        let Some(window_) = event_app.get_window("config") else {
+            return;
+        };
+        match event {
+            tauri::WindowEvent::Resized(size) => {
+                if matches!(window_.is_visible(), Ok(true)) && !matches!(window_.is_maximized(), Ok(true)) {
+                    let s = monitor_scale(&window_);
+                    let _ = tx.send((size.width as f64 / s, size.height as f64 / s));
+                }
             }
-            set("config_window_size", vec![last.0, last.1]);
-        }
-    });
-    window.on_window_event(move |event| match event {
-        tauri::WindowEvent::Resized(size) => {
-            if matches!(window_.is_visible(), Ok(true)) && !matches!(window_.is_maximized(), Ok(true)) {
-                let s = monitor_scale(&window_);
-                let _ = tx.send((size.width as f64 / s, size.height as f64 / s));
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                save_config_window_state(&window_);
+                // Reuse one settings WebView instead of repeatedly allocating native
+                // browser resources. The tray keeps the application alive anyway.
+                api.prevent_close();
+                let _ = window_.hide();
             }
+            tauri::WindowEvent::Focused(false) => save_config_window_state(&window_),
+            _ => {}
         }
-        tauri::WindowEvent::CloseRequested { .. } => save_config_window_state(&window_),
-        tauri::WindowEvent::Focused(false) => save_config_window_state(&window_),
-        _ => {}
     });
 }
 

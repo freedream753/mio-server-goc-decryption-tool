@@ -2,6 +2,7 @@ import { VscChromeClose, VscChromeMinimize, VscChromeMaximize, VscChromeRestore 
 import React, { useEffect, useState } from 'react';
 import { appWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api';
 import { Button } from '@nextui-org/react';
 
 import { osType } from '../../utils/env';
@@ -48,7 +49,7 @@ export default function WindowControl() {
                 isIconOnly
                 variant='light'
                 className={`w-[35px] h-[35px] rounded-none close-button ${osType === 'Linux' && 'rounded-tr-[10px]'}`}
-                onPress={() => appWindow.close()}
+                onPress={() => appWindow.label === 'config' ? invoke('hide_config_window') : appWindow.close()}
             >
                 <VscChromeClose className='text-[16px]' />
             </Button>
