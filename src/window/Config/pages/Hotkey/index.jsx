@@ -1,11 +1,10 @@
-import { unregister, isRegistered } from '@tauri-apps/api/globalShortcut';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
 import { Button } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
-import React from 'react';
+import React, { useState } from 'react';
 
 import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
@@ -47,14 +46,17 @@ const keyMap = {
 
 export default function Hotkey() {
     const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', 'Alt+C');
+    // 输入框为草稿态：编辑期间不注销旧热键、不写 store；
+    // 仅点击「确定」且后端注册成功后才落盘，失败保留原热键
+    const [draft, setDraft] = useState('');
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
 
-    function keyDown(e, setKey) {
+    function keyDown(e) {
         e.preventDefault();
         if (e.keyCode === 8) {
-            setKey('');
+            setDraft('');
         } else {
             let newValue = '';
             if (e.ctrlKey) {
@@ -86,28 +88,30 @@ export default function Hotkey() {
             } else {
                 code = '';
             }
-            setKey(`${newValue}${newValue.length > 0 && code.length > 0 ? '+' : ''}${code}`);
+            setDraft(`${newValue}${newValue.length > 0 && code.length > 0 ? '+' : ''}${code}`);
         }
     }
 
-    function registerHandler(name, key) {
-        isRegistered(key).then((res) => {
-            if (res) {
-                toast.error(t('config.hotkey.is_register'), { style: toastStyle });
-            } else {
-                invoke('register_shortcut_by_frontend', {
-                    name: name,
-                    shortcut: key,
-                }).then(
-                    () => {
-                        toast.success(t('config.hotkey.success'), { style: toastStyle });
-                    },
-                    (e) => {
-                        toast.error(e, { style: toastStyle });
-                    }
-                );
+    // 点「确定」才提交：后端先注销旧键再注册新键，失败自动回滚旧键并报错
+    function applyDraft() {
+        if (!draft || draft === ocrRecognize) {
+            setDraft('');
+            return;
+        }
+        invoke('update_shortcut', {
+            name: 'hotkey_ocr_recognize',
+            shortcut: draft,
+        }).then(
+            () => {
+                toast.success(t('config.hotkey.success'), { style: toastStyle });
+                // Rust 侧已落盘；同步前端 useConfig 状态使输入框立即显示新热键
+                setOcrRecognize(draft, true);
+                setDraft('');
+            },
+            (e) => {
+                toast.error(e, { style: toastStyle });
             }
-        });
+        );
     }
 
     return (
@@ -120,24 +124,20 @@ export default function Hotkey() {
                         <Input
                             type='hotkey'
                             variant='bordered'
-                            value={ocrRecognize}
+                            value={draft || ocrRecognize}
                             label={t('config.hotkey.set_hotkey')}
                             className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setOcrRecognize);
-                            }}
+                            onKeyDown={keyDown}
                             onFocus={() => {
-                                unregister(ocrRecognize);
-                                setOcrRecognize('');
+                                // 聚焦只清空草稿重新捕获，不影响已生效热键
+                                setDraft('');
                             }}
                             endContent={
                                 <Button
                                     size='sm'
                                     variant='flat'
-                                    className={`${ocrRecognize === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_ocr_recognize', ocrRecognize);
-                                    }}
+                                    className={`${draft === '' && 'hidden'}`}
+                                    onPress={applyDraft}
                                 >
                                     {t('common.ok')}
                                 </Button>

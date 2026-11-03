@@ -7,6 +7,7 @@ import { useTheme } from 'next-themes';
 
 import Screenshot from './window/Screenshot';
 import Recognize from './window/Recognize';
+import Result from './window/Result';
 import { store } from './utils/store';
 import Config from './window/Config';
 import { useConfig } from './hooks';
@@ -17,6 +18,7 @@ const windowMap = {
     screenshot: <Screenshot />,
     recognize: <Recognize />,
     config: <Config />,
+    result: <Result />,
 };
 
 export default function App() {

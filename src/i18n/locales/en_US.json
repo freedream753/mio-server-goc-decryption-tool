@@ -148,6 +148,10 @@
                 "label": "History",
                 "title": "History"
             },
+            "corrections": {
+                "label": "Answer Bank",
+                "title": "Answer Bank"
+            },
             "backup": {
                 "label": "Backup",
                 "title": "Backup Settings",
@@ -205,8 +209,8 @@
             "copy_text": "Copy",
             "delete_newline": "Delete Newline",
             "delete_space": "Delete Space",
-            "decrypt_success": "Caesar cracked (shift {{shift}}), plaintext copied to clipboard",
             "copy_success": "Recognized text copied to clipboard",
+            "copy_failed": "Copy to clipboard failed",
             "decrypt_error": "Screenshot decrypt failed",
             "no_image": "No screenshot content found"
         }

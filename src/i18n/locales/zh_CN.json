@@ -148,6 +148,10 @@
                 "label": "历史记录",
                 "title": "历史记录"
             },
+            "corrections": {
+                "label": "自学习词库",
+                "title": "自学习词库"
+            },
             "backup": {
                 "label": "备份设置",
                 "title": "备份设置",
@@ -205,8 +209,8 @@
             "copy_text": "复制",
             "delete_newline": "删除换行",
             "delete_space": "删除空格",
-            "decrypt_success": "凯撒破解成功（位移 {{shift}}），明文已复制到剪贴板",
             "copy_success": "识别结果已复制到剪贴板",
+            "copy_failed": "复制到剪贴板失败",
             "decrypt_error": "截图解密失败",
             "no_image": "未获取到截图内容"
         }

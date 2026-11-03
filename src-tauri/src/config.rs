@@ -37,8 +37,15 @@ pub fn get(key: &str) -> Option<Value> {
 pub fn set<T: serde::ser::Serialize>(key: &str, value: T) {
     let state = APP.get().unwrap().state::<StoreWrapper>();
     let mut store = state.0.lock().unwrap();
-    store.insert(key.to_string(), json!(value)).unwrap();
-    store.save().unwrap();
+    // 写盘失败（磁盘满/文件被占用）只记日志不 panic：
+    // 本函数会被窗口事件闭包与防抖线程调用，panic 会打穿事件循环
+    if let Err(e) = store.insert(key.to_string(), json!(value)) {
+        warn!("Config insert failed for {key}: {e}");
+        return;
+    }
+    if let Err(e) = store.save() {
+        warn!("Config save failed for {key}: {e}");
+    }
 }
 
 pub fn is_first_run() -> bool {

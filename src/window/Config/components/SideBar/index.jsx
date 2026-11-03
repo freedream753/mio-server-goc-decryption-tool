@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { AiFillAppstore, AiFillInfoCircle } from 'react-icons/ai';
+import { AiFillAppstore, AiFillBook, AiFillInfoCircle } from 'react-icons/ai';
 import { useTranslation } from 'react-i18next';
 import { MdKeyboardAlt } from 'react-icons/md';
 import { Button } from '@nextui-org/react';
@@ -39,6 +39,18 @@ export default function SideBar() {
                 startContent={<MdKeyboardAlt className='text-[24px]' />}
             >
                 <div className='w-full'>{t('config.hotkey.label')}</div>
+            </Button>
+            <Button
+                fullWidth
+                size='lg'
+                variant={setStyle('/corrections')}
+                className='mb-[5px]'
+                onPress={() => {
+                    navigate('/corrections');
+                }}
+                startContent={<AiFillBook className='text-[24px]' />}
+            >
+                <div className='w-full'>{t('config.corrections.label')}</div>
             </Button>
             <Button
                 fullWidth

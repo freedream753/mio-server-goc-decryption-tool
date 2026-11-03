@@ -41,8 +41,12 @@ pub fn start_server() {
 fn http_handle(request: Request) {
     info!("Handle {} request", request.url());
     match request.url() {
-        "/" | "/ocr_recognize" | "/ocr_recognize?screenshot=true" => handle_ocr_recognize(request),
+        // v1.0.3 主入口：自动解题管线（失败在结果窗口报错，不再回退手动框选）
+        "/" | "/ocr_recognize" | "/ocr_recognize?screenshot=true" => handle_solver_recognize(request),
+        // 旧隐藏识别管线：保留作回归验证
         "/ocr_recognize?screenshot=false" => handle_recognize_window(request),
+        // 新管线隐藏验证入口：不截屏不弹窗，对已有 pot_screenshot_full.png 跑管线，答案写剪贴板
+        "/solver_recognize?screenshot=false" => handle_solver_hidden(request),
         "/config" => handle_config(request),
         _ => warn!("Unknown request url: {}", request.url()),
     }
@@ -53,8 +57,13 @@ fn handle_config(request: Request) {
     response_ok(request);
 }
 
-fn handle_ocr_recognize(request: Request) {
-    ocr_recognize();
+fn handle_solver_recognize(request: Request) {
+    crate::solver::solver_recognize();
+    response_ok(request);
+}
+
+fn handle_solver_hidden(request: Request) {
+    crate::solver::solver_recognize_hidden();
     response_ok(request);
 }
 

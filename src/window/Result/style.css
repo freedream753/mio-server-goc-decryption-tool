@@ -1,0 +1,188 @@
+/* 解题结果窗口：深色高对比、单行结果、不透明背景（覆盖在游戏画面上），紧凑布局 */
+html,
+body,
+#root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+}
+
+.result-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    box-sizing: border-box;
+    background: rgba(2, 8, 24, 0.96);
+    border: 1px solid #2d6799;
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+    padding: 6px 8px 8px;
+    user-select: none;
+    color: #d8e6ff;
+    font-size: 13px;
+}
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    padding: 0 2px 5px;
+    border-bottom: 1px solid rgba(45, 103, 153, 0.4);
+    cursor: move;
+    border-radius: 6px 6px 0 0;
+}
+
+.result-header:hover {
+    background: rgba(78, 161, 255, 0.1);
+}
+
+/* 明显的拖拽指示框：grip 图标 + 虚线边框，纯指示作用 */
+.result-grip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 16px;
+    font-size: 13px;
+    line-height: 1;
+    color: #4ea1ff;
+    background: rgba(78, 161, 255, 0.14);
+    border: 1px dashed rgba(78, 161, 255, 0.55);
+    border-radius: 4px;
+    cursor: move;
+}
+
+.result-title {
+    flex: 1;
+    font-weight: 700;
+    font-size: 12px;
+    color: #4ea1ff;
+}
+
+.result-countdown {
+    font-family: Consolas, monospace;
+    font-size: 11px;
+    color: #6f8bb5;
+}
+
+.result-close {
+    font-size: 12px;
+    line-height: 1;
+    color: #6f8bb5;
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 4px;
+}
+
+.result-close:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.result-rows {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    min-height: 0;
+}
+
+.result-empty {
+    text-align: center;
+    color: #40506b;
+    font-size: 12px;
+}
+
+.result-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.result-row:hover {
+    background: rgba(78, 161, 255, 0.12);
+}
+
+.result-row.is-error {
+    cursor: default;
+    color: #7a86a0;
+}
+
+.row-cipher {
+    font-family: Consolas, monospace;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    color: #eaf2ff;
+    white-space: nowrap;
+}
+
+.row-label {
+    font-size: 11px;
+    color: #7fb2e8;
+    background: rgba(45, 103, 153, 0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+}
+
+.row-arrow {
+    color: #4a6080;
+}
+
+.row-answer {
+    font-family: Consolas, monospace;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.row-answer.st-ok {
+    color: #6ee7a0;
+}
+
+.row-answer.st-learned {
+    color: #ffd166;
+}
+
+.row-answer.st-unknown {
+    color: #eaf2ff;
+}
+
+.row-status {
+    font-style: normal;
+    font-size: 11px;
+    color: #5b7ea8;
+}
+
+/* 窄窗口下绝对定位悬浮展示，不挤压答案内容 */
+.row-copied {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 1px 5px;
+    font-size: 10px;
+    color: #6ee7a0;
+    background: rgba(2, 8, 24, 0.95);
+    border: 1px solid rgba(110, 231, 160, 0.4);
+    border-radius: 3px;
+    white-space: nowrap;
+}

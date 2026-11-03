@@ -1,5 +1,6 @@
 use crate::config::{get, set};
-use crate::window::{config_window, ocr_recognize};
+use crate::solver::solver_recognize;
+use crate::window::config_window;
 use log::info;
 use tauri::CustomMenuItem;
 use tauri::GlobalShortcutManager;
@@ -63,14 +64,14 @@ fn on_tray_click() {
     };
     match event.as_str() {
         "config" => config_window(),
-        "ocr_recognize" => ocr_recognize(),
+        "ocr_recognize" => solver_recognize(),
         "disable" => {}
         _ => config_window(),
     }
 }
 
 fn on_ocr_recognize_click() {
-    ocr_recognize();
+    solver_recognize();
 }
 
 fn on_config_click() {

@@ -1,11 +1,23 @@
 use crate::config::{get, set};
 use crate::APP;
 use log::{info, warn};
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri::Monitor;
 use tauri::Window;
 use tauri::WindowBuilder;
 use window_shadows::set_shadow;
+
+// 最新一次自动解题结果（JSON：{cards, show}），结果窗口前端挂载后经 get_solve_result 拉取
+pub static SOLVE_RESULT: Mutex<Option<serde_json::Value>> = Mutex::new(None);
+
+// 结果窗口自动隐藏截止时刻：WebView2 对非激活窗口节流 timer，前端倒计时可能停摆，
+// 由 Rust 侧兜底到期隐藏
+static RESULT_DEADLINE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+// 结果窗口几何（逻辑尺寸）：按内容实际宽度收紧（此前 400 宽右侧大片空白）
+const RESULT_WINDOW_W: f64 = 320.0;
+const RESULT_WINDOW_H: f64 = 140.0;
 
 // Get daemon window instance
 fn get_daemon_window() -> Window {
@@ -79,6 +91,11 @@ fn build_window(label: &str, title: &str) -> (Window, bool) {
     match app_handle.get_window(label) {
         Some(v) => {
             info!("Window existence: {}", label);
+            // 最小化状态下 set_focus 不生效（Windows 不还原最小化窗口），
+            // 先还原再聚焦，否则托盘/HTTP 再次打开时表现为「点了没反应」
+            if matches!(v.is_minimized(), Ok(true)) {
+                let _ = v.unminimize();
+            }
             let _ = v.set_focus();
             (v, true)
         }
@@ -256,31 +273,217 @@ pub fn recognize_window() {
     let _ = window.emit("new_image", "");
 }
 
-fn screenshot_window() -> Window {
-    let (window, exists) = build_window("screenshot", "Screenshot");
+// ---------------- 解题结果窗口 ----------------
+// 始终置顶 + WS_EX_NOACTIVATE（不抢焦点，不打断游戏按键交互），
+// 数据由 Rust 推送（emit solve_result），展示/复制/倒计时由前端负责。
 
-    // 框选完成后由截图窗口前端 emit("success") 触发 OCR。
-    // tauri v1 的 Window::listen 只能收到 window 标签与自身 label 相同的 trigger
-    // （JS 全局 emit 会以「发起窗口的 label」触发 Rust 监听器），因此监听必须挂在
-    // 截图窗口自己身上；窗口每次新建时重新注册，复用时沿用已有监听，避免监听丢失。
-    if !exists {
-        let _ = window.listen("success", |_| recognize_window());
+// 结果窗口 Win32 扩展样式：NOACTIVATE + TOPMOST
+#[cfg(target_os = "windows")]
+fn apply_result_ex_style(window: &Window) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOPMOST,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let h = HWND(hwnd.0 as *mut _);
+            let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+            SetWindowLongPtrW(
+                h,
+                GWL_EXSTYLE,
+                ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOPMOST.0 as isize,
+            );
+        }
     }
-
-    let _ = window.set_skip_taskbar(true);
-    let _ = window.set_fullscreen(true);
-
-    let _ = window.set_always_on_top(true);
-    window
 }
 
-pub fn ocr_recognize() {
-    let window = screenshot_window();
-    // 截图窗口会被复用：其前端 useEffect 只在挂载时执行一次，复用旧窗口不会重新截屏，
-    // 导致第二次 OCR 截屏一直显示旧图/无图。这里每次触发都显式通知前端重新截屏并显示；
-    // 新建窗口时前端会在挂载阶段自行截屏（事件可能早于前端监听注册，丢失也无妨）。
-    if let Err(e) = window.emit("screenshot_request", "") {
-        warn!("Emit screenshot_request failed: {}", e);
+// 在鼠标附近定位结果窗口（物理像素，绕开 tao v1 隐藏窗口缩放 bug），返回 (x, y, w, h)
+#[cfg(target_os = "windows")]
+fn result_window_geometry() -> (i32, i32, i32, i32) {
+    let monitor = mouse_monitor();
+    let scale = monitor.scale_factor().max(0.1);
+    let pw = (RESULT_WINDOW_W * scale).round() as i32;
+    let ph = (RESULT_WINDOW_H * scale).round() as i32;
+    let (mx, my) = {
+        use mouse_position::mouse_position::Mouse;
+        match Mouse::get_mouse_position() {
+            Mouse::Position { x, y } => (x, y),
+            Mouse::Error => (0, 0),
+        }
+    };
+    let mp = monitor.position();
+    let ms = monitor.size();
+    let x = (mx + 24).min(mp.x + ms.width as i32 - pw - 8).max(mp.x + 8);
+    let y = (my + 24).min(mp.y + ms.height as i32 - ph - 8).max(mp.y + 8);
+    (x, y, pw, ph)
+}
+
+// 创建（或复用）结果窗口并推送新结果。调用方须在主线程。
+pub fn result_window_notify(payload: serde_json::Value) {
+    let app = APP.get().unwrap();
+    let window = match app.get_window("result") {
+        Some(v) => v,
+        None => {
+            info!("Creating result window");
+            let builder = tauri::WindowBuilder::new(
+                app,
+                "result",
+                tauri::WindowUrl::App("index.html".into()),
+            )
+            .title("GOC Result")
+            .visible(false)
+            .transparent(true)
+            .decorations(false)
+            .focused(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false);
+            let window = match builder.build() {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Failed to create result window: {}", e);
+                    return;
+                }
+            };
+            let _ = window.current_monitor();
+            #[cfg(target_os = "windows")]
+            apply_result_ex_style(&window);
+            // 拖动判定不基于 Moved 事件（拖动中途停住会被误判结束），
+            // 而是前端按下拖拽区调用 begin_result_drag，回收线程轮询左键状态
+            ensure_result_reaper(window.clone());
+            window
+        }
+    };
+    if let Err(e) = window.emit("solve_result", payload) {
+        warn!("Emit solve_result failed: {}", e);
+    }
+}
+
+// 显示结果窗口：鼠标附近重新定位 + SW_SHOWNA 式置顶（绝不抢焦点），复用 Win32 单调用
+pub fn show_result_window() {
+    if let Some(app) = APP.get() {
+        if let Some(window) = app.get_window("result") {
+            #[cfg(target_os = "windows")]
+            {
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+                };
+                if let Ok(hwnd) = window.hwnd() {
+                    let (x, y, w, h) = result_window_geometry();
+                    unsafe {
+                        let _ = SetWindowPos(
+                            HWND(hwnd.0 as *mut _),
+                            HWND_TOPMOST,
+                            x,
+                            y,
+                            w,
+                            h,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                        );
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = window.show();
+            }
+            touch_result_deadline();
+        }
+    }
+}
+
+// Rust 侧兜底：到期后由常驻回收线程隐藏结果窗口（前端 timer 被节流时靠它保证消失）。
+// 拖动窗口时 Win32 处于模态循环，Moved 事件高频到达，此处只刷新截止时刻，
+// 不为每个事件单独起线程。
+fn touch_result_deadline() {
+    *RESULT_DEADLINE.lock().unwrap() =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+}
+
+// 拖动状态：前端按下拖拽区置 true（begin_result_drag），回收线程检测到左键松开后结束
+static RESULT_DRAG_HELD: Mutex<bool> = Mutex::new(false);
+
+// 常驻回收线程：每 500ms 检查倒计时是否到期，到期直接 ShowWindow(SW_HIDE)。
+// 窗口经 Win32 SetWindowPos(SWP_SHOWWINDOW) 显示，tao 内部可见状态仍是 false，
+// window.hide() 会被当作 no-op 跳过，必须直接 ShowWindow(SW_HIDE)。
+// 拖动中（左键按住）：倒计时保持 10s 不动；松开后等 2s 再开始 10s 倒计时。
+fn ensure_result_reaper(window: Window) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        // 拖动中：以左键物理状态为准（不看是否移动，停住也不误判）
+        if *RESULT_DRAG_HELD.lock().unwrap() {
+            let held = {
+                #[cfg(target_os = "windows")]
+                unsafe {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+                    (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
+                }
+                #[cfg(not(target_os = "windows"))]
+                { false }
+            };
+            if held {
+                continue;
+            }
+            // 刚松开：等 2s 后开始 10s 倒计时（deadline = now + 12s），通知前端恢复
+            *RESULT_DRAG_HELD.lock().unwrap() = false;
+            *RESULT_DEADLINE.lock().unwrap() =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(12));
+            let _ = window.emit("result-drag-end", ());
+            info!("[window] 拖动结束，2s 后重新计 10s");
+            continue;
+        }
+        let expired = {
+            let d = RESULT_DEADLINE.lock().unwrap();
+            matches!(*d, Some(t) if t <= std::time::Instant::now())
+        };
+        if !expired {
+            continue;
+        }
+        *RESULT_DEADLINE.lock().unwrap() = None;
+        #[cfg(target_os = "windows")]
+        unsafe {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+            if let Ok(hwnd) = window.hwnd() {
+                let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_HIDE);
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        let _ = window.hide();
+        info!("[window] 结果窗口到期自动隐藏");
+    });
+}
+
+// 前端交互（复制/拖动窗口）重置倒计时时同步推迟兜底隐藏
+pub fn reset_result_timer() {
+    touch_result_deadline();
+}
+
+// 前端按下拖拽区调用：进入拖动状态，倒计时重置为 10s 并保持不动（回收线程以左键状态判定结束）
+pub fn begin_result_drag() {
+    *RESULT_DRAG_HELD.lock().unwrap() = true;
+    touch_result_deadline();
+}
+
+// 前端关闭按钮调用：立即隐藏（tao 可见状态为 false 时 window.hide() 是 no-op，必须 SW_HIDE）
+pub fn hide_result_window() {
+    *RESULT_DRAG_HELD.lock().unwrap() = false;
+    *RESULT_DEADLINE.lock().unwrap() = None;
+    if let Some(app) = APP.get() {
+        if let Some(window) = app.get_window("result") {
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+                if let Ok(hwnd) = window.hwnd() {
+                    let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_HIDE);
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            let _ = window.hide();
+            info!("[window] 结果窗口手动关闭");
+        }
     }
 }
 

@@ -148,6 +148,10 @@
                 "label": "歷史記錄",
                 "title": "歷史記錄"
             },
+            "corrections": {
+                "label": "自學習詞庫",
+                "title": "自學習詞庫"
+            },
             "backup": {
                 "label": "備份設定",
                 "title": "備份設定",
@@ -212,8 +216,8 @@
             "copy_text": "複製",
             "delete_newline": "刪除換行",
             "delete_space": "刪除空格",
-            "decrypt_success": "凱撒破解成功（位移 {{shift}}），明文已複製到剪貼簿",
             "copy_success": "辨識結果已複製到剪貼簿",
+            "copy_failed": "複製到剪貼簿失敗",
             "decrypt_error": "截圖解密失敗",
             "no_image": "未取得截圖內容"
         }
