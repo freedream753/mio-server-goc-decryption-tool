@@ -288,11 +288,12 @@ fn apply_result_ex_style(window: &Window) {
         unsafe {
             let h = HWND(hwnd.0 as *mut _);
             let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-            SetWindowLongPtrW(
-                h,
-                GWL_EXSTYLE,
-                ex | WS_EX_NOACTIVATE.0 as _ | WS_EX_TOPMOST.0 as _,
-            );
+            // LONG_PTR 宽度随架构变化（x64=isize、x86=i32），按指针宽度显式转换
+            #[cfg(target_pointer_width = "64")]
+            let flags = (WS_EX_NOACTIVATE.0 | WS_EX_TOPMOST.0) as isize;
+            #[cfg(target_pointer_width = "32")]
+            let flags = WS_EX_NOACTIVATE.0 | WS_EX_TOPMOST.0;
+            SetWindowLongPtrW(h, GWL_EXSTYLE, ex | flags);
         }
     }
 }
