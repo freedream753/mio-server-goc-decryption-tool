@@ -291,7 +291,7 @@ fn apply_result_ex_style(window: &Window) {
             SetWindowLongPtrW(
                 h,
                 GWL_EXSTYLE,
-                ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOPMOST.0 as isize,
+                ex | WS_EX_NOACTIVATE.0 as _ | WS_EX_TOPMOST.0 as _,
             );
         }
     }
