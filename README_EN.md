@@ -26,6 +26,7 @@ Automatically recognizes the three cipher cards on the puzzle page, decrypts the
 - [Technical Details](#technical-details)
 - [Building from Source](#building-from-source)
 - [FAQ](#faq)
+- [Changelog](#changelog)
 - [License & Credits](#license--credits)
 
 ## Features
@@ -111,6 +112,34 @@ Make sure the Chinese language pack is installed (Settings → Time & Language �
 
 Since v1.0.3, color detection adapts to luminance-type filters such as NVIDIA Freestyle / in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
 </details>
+
+## Changelog
+
+### v1.0.3 (2026-11-03) — New Puzzle Page Adaptation
+
+Full rewrite after the game updated to a three-card puzzle page:
+
+1. **Fully automatic recognition:** `Alt + C` captures the full screen and locates the three cipher cards automatically — no manual region selection anymore
+2. **OCR engine swap:** Tesseract.js (wasm models) retired in favor of the Windows built-in Windows.Media.Ocr engine — zero model downloads, fully offline, smaller exe
+3. **Label-based decryption:** Reads each card's "shift forward / backward by N" label and decrypts accordingly (backward → -N, forward → +N), replacing the fixed Caesar -3
+4. **New result window:** Always on top without stealing focus, three "cipher → answer" rows, click to copy, auto-hides after a 10-second countdown
+5. **Self-learning:** Corrections made in the result window are remembered permanently — if the game's semantics ever change, one fix is enough
+6. **Filter adaptation:** Relative color-order detection + grayscale normalization, compatible with color drift from NVIDIA Freestyle / in-game brightness filters
+7. Cipher word-length limit extended to 3–12 letters; the old manual-selection pipeline is retired
+
+### v1.0.1 (2026-10-27)
+
+1. OCR logic tuning — 100% accuracy on both regression screenshots
+2. Statically linked WebView2Loader for a true single-file exe (no bundled DLLs)
+3. Fixed blank windows caused by missing `custom-protocol` build feature, broken logo, etc.
+4. Completed x86 / ARM64 artifacts; triple-architecture release convention established
+
+### v1.0.0 (2026-10-19) — Initial Public Release
+
+1. Manual region selection → Tesseract.js OCR → Caesar -3 decryption → auto copy to clipboard
+2. Single-file exe for x64 / x86 / ARM64
+
+> v1.0.2 was an internal build (failure logging + tray "View Log" entry), never separately released; its content is included in v1.0.3. Full release notes at [Releases](../../releases).
 
 ## License & Credits
 
