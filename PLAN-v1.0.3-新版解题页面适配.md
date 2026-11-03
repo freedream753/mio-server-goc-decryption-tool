@@ -1,6 +1,6 @@
 # GOC 解题工具 v1.0.3「新版解题页面适配」最终计划
 
-> 状态：计划已定稿，尚未实施。本文件供新会话续接，内容自包含。
+> 状态：**已实施并发布**。v1.0.3 已完成三架构构建（x64/x86/arm64）、GitHub Release 发布（Release id 432310338）与源码推送。本文件保留为设计存档，实现细节以源码为准（识别管线 `src-tauri/src/solver.rs`、结果窗口 `src-tauri/src/window.rs` + `src/window/Result/`）。
 
 ## 〇、背景
 
