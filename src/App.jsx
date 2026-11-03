@@ -45,7 +45,11 @@ export default function App() {
                 e.preventDefault();
             }
             if (e.key === 'Escape') {
-                await appWindow.close();
+                // 结果窗口只隐藏不销毁（复用 + Rust 兜底隐藏），Escape 关闭会把
+                // 整窗销毁导致三卡全部消失（密文编辑态按 Esc 取消编辑即触发）
+                if (appWindow.label !== 'result') {
+                    await appWindow.close();
+                }
             }
         };
         document.addEventListener('keydown', handler);

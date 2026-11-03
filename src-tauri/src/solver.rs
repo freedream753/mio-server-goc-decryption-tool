@@ -28,30 +28,156 @@ const CIPHER_UPSCALE: u32 = 2; // 密文行大字：2 倍放大原样识别
 const WORD_MIN: usize = 3; // 词长下限（旧管线 [A-Z]{3,8} 会截断 9 字母词）
 const WORD_MAX: usize = 12; // 词长上限
 
-// 词表仅做答案校验提示（✓ 命中 / ？未验证），不做暴力破解
-const WORDS: &[&str] = &[
-    "NEGATIVE", "POSITIVE", "BALANCE", "EFFICIENT", "AWARE", "BRAVE", "BREAK", "BITTER", "HURT",
-    "AREA", "CALM", "CHAOS", "ORDER", "PEACE", "TRUST", "FAITH", "LOYAL", "HONEST", "KIND",
-    "NOBLE", "PROUD", "SHAME", "GUILT", "PRIDE", "FEAR", "HOPE", "DOOM", "FATE", "LIFE", "DEATH",
-    "LIGHT", "DARK", "SHADOW", "DAWN", "DUSK", "STORM", "FROST", "FLAME", "EMBER", "ASH", "DUST",
-    "STONE", "STEEL", "IRON", "GOLD", "SILVER", "BLOOD", "WOUND", "HEAL", "CURE", "POISON",
-    "VENOM", "TOXIC", "PURE", "CORRUPT", "TAINTED", "BLESSED", "CURSED", "SACRED", "PROFANE",
-    "MORTAL", "DIVINE", "HUMAN", "MONSTER", "BEAST", "ANGEL", "DEMON", "GHOST", "SOUL", "MIND",
-    "BODY", "HEART", "STRENGTH", "WEAKNESS", "COURAGE", "WISDOM", "FOLLY", "JUSTICE", "MERCY",
-    "WRATH", "GRACE", "SILENCE", "ECHO", "VOICE", "SONG", "HUNGER", "SLEEP", "DREAM", "MEMORY",
-    "LOSS", "GAIN", "PROFIT", "DEBT", "PRICE", "COST", "WORTH", "VALUE", "SEED", "ROOT", "BRANCH",
-    "ILLUSTRATE", "RESTRICT", "ELIMINATE",
+// 内置默认答案词表（游戏答案全集，提取自官方前/后移对应表）：仅做词表反查与答案校验，不做暴力破解。
+// 可被设置页的自定义词表覆盖（words.json），词表是分级输出「词表反查」兜底的唯一数据源。
+const DEFAULT_ANSWERS: &[&str] = &[
+    "ABANDON", "ACHIEVE", "BALANCE", "BUDGET", "CAPACITY", "CONTRAST", "DECLINE", "DEMONSTRATE",
+    "EFFICIENT", "ELIMINATE", "FAMILIAR", "FLEXIBLE", "GENERATE", "GUARANTEE", "HARVEST",
+    "IDENTIFY", "ILLUSTRATE", "INVOLVE", "JUSTIFY", "KNOWLEDGE", "LAUNCH", "MAINTAIN", "MOTIVATE",
+    "NEGATIVE", "NEGOTIATE", "OBTAIN", "OCCUPY", "PARTICIPATE", "PERCEIVE", "QUOTE", "QUALITY",
+    "REDUCE", "RESTRICT", "SIGNIFICANT", "SURVIVE", "TOLERATE", "TRANSFORM", "UPDATE", "URBAN",
+    "VARY", "VITAL", "WITHDRAW", "WITNESS", "YIELD", "ZONE",
 ];
+
+// 词表派生映射缓存：词表变更（保存/恢复默认）后失效，下次使用时按当前词表重建
+static TABLE_CACHE: std::sync::RwLock<Option<std::sync::Arc<HashMap<String, (i32, u32, String)>>>> =
+    std::sync::RwLock::new(None);
+
+// 自定义词表持久化路径（与 answers.json 同目录）
+fn words_path() -> Result<PathBuf, String> {
+    let app = APP.get().ok_or("app not initialized")?;
+    let dir = dirs::config_dir().ok_or("config dir not found")?;
+    Ok(dir
+        .join(&app.config().tauri.bundle.identifier)
+        .join("words.json"))
+}
+
+// 当前生效词表：words.json 覆盖优先，否则内置默认
+pub fn answer_words() -> Vec<String> {
+    if let Ok(p) = words_path() {
+        if let Ok(s) = std::fs::read_to_string(p) {
+            if let Ok(v) = serde_json::from_str::<Vec<String>>(&s) {
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    DEFAULT_ANSWERS.iter().map(|s| s.to_string()).collect()
+}
+
+// 当前词表是否为自定义（words.json 存在即视为自定义），
+// 供设置页「恢复默认」按钮判定，避免前端按词数与 DEFAULT_ANSWERS.len() 硬耦合
+pub fn is_custom_words() -> bool {
+    words_path().map(|p| p.exists()).unwrap_or(false)
+}
+
+// 由词表派生密文映射（±1..13 位，n 升序 or_insert 保证最短表示）：
+// mod 26 下 后移N ≡ 前移(26-N)，只派生到 13 避免给玩家显示 后移24位 这类误导标签
+fn build_table(words: &[String]) -> HashMap<String, (i32, u32, String)> {
+    let mut m = HashMap::new();
+    for w in words {
+        for n in 1u32..=13 {
+            for dir in [1i32, -1] {
+                // 解密恒等式：caesar(密文, dir, n) = 答案 => 密文 = caesar(答案, -dir, n)
+                m.entry(caesar(w, -dir, n)).or_insert((dir, n, w.clone()));
+            }
+        }
+    }
+    m
+}
+
+// 映射表快照：缓存命中直接返回，否则按当前词表重建
+fn cipher_table_snapshot() -> std::sync::Arc<HashMap<String, (i32, u32, String)>> {
+    if let Ok(g) = TABLE_CACHE.read() {
+        if let Some(t) = g.as_ref() {
+            return t.clone();
+        }
+    }
+    let table = std::sync::Arc::new(build_table(&answer_words()));
+    if let Ok(mut w) = TABLE_CACHE.write() {
+        *w = Some(table.clone());
+    }
+    table
+}
+
+fn invalidate_table() {
+    if let Ok(mut w) = TABLE_CACHE.write() {
+        *w = None;
+    }
+}
+
+// 设置页：保存自定义词表（校验 A-Z、词长 3~12、去重、上限 500），持久化后失效缓存
+pub fn save_answer_words(words: Vec<String>) -> Result<usize, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut clean = Vec::new();
+    for w in words {
+        let w = w.trim().to_uppercase();
+        if w.is_empty() {
+            continue;
+        }
+        if w.len() < WORD_MIN || w.len() > WORD_MAX {
+            return Err(format!("词长须在 {}~{} 位：{}", WORD_MIN, WORD_MAX, w));
+        }
+        if !w.chars().all(|c| c.is_ascii_uppercase()) {
+            return Err(format!("仅支持 A-Z：{}", w));
+        }
+        if seen.insert(w.clone()) {
+            clean.push(w);
+        }
+    }
+    if clean.is_empty() {
+        return Err("词表不能为空".into());
+    }
+    if clean.len() > 500 {
+        return Err("词表过大（上限 500 词）".into());
+    }
+    let path = words_path()?;
+    let data = serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?;
+    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    invalidate_table();
+    info!("[solver] 答案词表已更新：{} 词，映射表待重建", clean.len());
+    Ok(clean.len())
+}
+
+// 设置页：删除自定义词表，恢复内置默认
+pub fn reset_answer_words() -> Result<(), String> {
+    if let Ok(p) = words_path() {
+        let _ = std::fs::remove_file(p);
+    }
+    invalidate_table();
+    info!("[solver] 答案词表已恢复内置默认（{} 词）", DEFAULT_ANSWERS.len());
+    Ok(())
+}
+
+// 识别单飞保护：热键/托盘/HTTP 三入口可并发触发，并发截图会对同一缓存 PNG
+// 交错执行非原子写入（写坏文件 -> 解码失败报错卡），进行中直接忽略新触发
+static SOLVE_IN_FLIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn spawn_solve(capture: bool, show: bool) {
+    use std::sync::atomic::Ordering;
+    if SOLVE_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        info!("[solver] 已有识别任务进行中，忽略本次触发");
+        return;
+    }
+    std::thread::spawn(move || {
+        solve_flow(capture, show);
+        SOLVE_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
+}
 
 // 入口：热键 / 托盘 / HTTP 主路由。截图 + 弹结果窗口
 pub fn solver_recognize() {
-    std::thread::spawn(|| solve_flow(true, true));
+    spawn_solve(true, true);
 }
 
 // HTTP 隐藏验证入口：不截屏、不弹窗，直接对已有 pot_screenshot_full.png 跑管线，
 // 第一个答案写剪贴板，供无感回归测试读取
 pub fn solver_recognize_hidden() {
-    std::thread::spawn(|| solve_flow(false, false));
+    spawn_solve(false, false);
 }
 
 fn solve_flow(capture: bool, show: bool) {
@@ -102,8 +228,10 @@ fn run_solve(capture: bool) -> Result<Value, String> {
     if rows.is_empty() {
         return Err("所有卡片识别失败".into());
     }
-    // 默认复制第一个有效答案
-    let first = rows.iter().find(|r| r["status"] != json!("error"));
+    // 默认复制第一个有效答案（跳过空答案行：首卡为 input/manual 兜底时仍复制后续有效卡）
+    let first = rows.iter().find(|r| {
+        r["status"] != json!("error") && r["answer"].as_str().map_or(false, |a| !a.is_empty())
+    });
     if let Some(r) = first {
         if let Some(ans) = r["answer"].as_str() {
             if !ans.is_empty() {
@@ -305,7 +433,11 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
         }
     }
     let dlg_h = dy1 - dy0 + 1;
-    let col_bands = merge_bands(&col_blue, dlg_h / 2, 20, dlg_h / 2);
+    // 列阈值取「最大列值的 1/4」自适应，而非固定 dlg_h/2：纵向带可能被上方全息屏
+    // 撑高（动画闪烁使带高逐帧波动），固定阈值会在带高偏高的帧整体落空
+    // （实机日志 33 次该阶段失败），对话框列恒为最大值附近，比例阈值随帧自适应
+    let max_col = *col_blue.iter().max().unwrap_or(&0);
+    let col_bands = merge_bands(&col_blue, (max_col / 4).max(16), 30, (dlg_h / 6).max(60));
     let dx = col_bands
         .iter()
         .max_by_key(|b| col_blue[b.start as usize..=b.end as usize].iter().sum::<u32>())
@@ -331,71 +463,99 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
         (pkey & 0xff) * 4 + 2,
     );
 
-    // 4) 输入框带：显著比页面背景更暗（B、G ≤ 0.85×P）。按「最长连续暗段」计行数——
+    // 4) 输入框带：显著比页面背景更暗（B、G ≤ 0.85×P）。行值 = 「最长连续暗段」——
     //    输入框是约 1/4 框宽的连续暗块，而对话框边框/卡间阴影只是细条，
-    //    按总像素计数会被边框+阴影凑满阈值（JPG 特写实测踩坑）
-    let mut row_dark = vec![0u32; h as usize];
-    for y in dy0..=dy1 {
-        let mut run = 0u32;
-        let mut best = 0u32;
-        for x in dx0..=dx1 {
-            if sc.is_input_rel(x, y, p) {
-                run += 1;
-                if run > best {
-                    best = run;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        row_dark[y as usize] = best;
-    }
-    let dark_bands = merge_bands(&row_dark, dlg_w / 6, 6, 8);
-    // 输入框带高度 ≈ 框宽的 4.4%（全图 53/1204、特写 40/902，跨缩放一致）。
-    // 标题栏区、底部面板、场景暗块也会形成长暗段（特写图底部全宽暗区 run=899
-    // 远大于输入框 run=232），故按「带高 ≤ 框宽/15」过滤后，按暗段质量降序
-    // 逐带尝试聚簇，取第一个结构合法（1~3 簇、单簇 ≤35% 框宽）的带
+    //    按总像素计数会被边框+阴影凑满阈值（JPG 特写实测踩坑）。
+    //    实机动画场景下该阶段曾大量失败，两类诱因：
+    //    a) run 阈值 dlg_w/6 卡在刀刃上：框内细亮纹让暗段只有理论值的 ~40%；
+    //    b) 光标悬停 / 滤镜噪声在暗段中间撕出亮缝。
+    //    对策 = 分层回退（严格 → 放宽 run 阈值 → 桥接 ≤6px 亮隔断），
+    //    簇校验统一用「2~3 个等宽簇」结构先验：三个输入框设计上像素级等宽，
+    //    阴影/边框带的簇宽参差或单簇过宽，会被等宽校验拒绝；卡间窄条噪声
+    //    按 <60% 最大簇剔除。
+    let layers: [(bool, u32); 4] = [(false, 9), (false, 14), (true, 9), (true, 14)];
     let mut input_xy: Option<(u32, u32)> = None;
     let mut clusters: Vec<Band> = Vec::new();
-    let mut cands: Vec<&Band> = dark_bands.iter().collect();
-    cands.sort_by_key(|b| {
-        std::cmp::Reverse(row_dark[b.start as usize..=b.end as usize].iter().sum::<u32>())
-    });
-    for band in cands {
-        let (y0, y1) = (band.start, band.end);
-        let hh = y1 - y0 + 1;
-        if hh < 10 || hh > dlg_w / 15 {
-            continue;
-        }
-        let mut col_dark = vec![0u32; w as usize];
-        for y in y0..=y1 {
+    'layers: for (bridged, div) in layers {
+        let mut row_dark = vec![0u32; h as usize];
+        for y in dy0..=dy1 {
+            let mut run = 0u32;
+            let mut gap = 0u32;
+            let mut best = 0u32;
             for x in dx0..=dx1 {
                 if sc.is_input_rel(x, y, p) {
-                    col_dark[x as usize] += 1;
+                    run += gap + 1;
+                    gap = 0;
+                    if run > best {
+                        best = run;
+                    }
+                } else if bridged {
+                    gap += 1;
+                    if gap > 6 {
+                        run = 0;
+                        gap = 0;
+                    }
+                } else {
+                    run = 0;
                 }
             }
+            row_dark[y as usize] = best;
         }
-        let col_thr = (hh as f64 * 0.5) as u32;
-        let cl = merge_bands(&col_dark, col_thr, 12, (hh as f64 * 0.3) as u32);
-        let max_w = cl
-            .iter()
-            .map(|b| b.end - b.start + 1)
-            .max()
-            .unwrap_or(0);
-        let cl: Vec<Band> = cl
-            .iter()
-            .filter(|b| {
-                let bw = b.end - b.start + 1;
-                bw >= max_w * 35 / 100 && bw <= dlg_w * 35 / 100
-            })
-            .copied()
-            .collect();
-        if cl.is_empty() || cl.len() > 3 {
-            continue;
+        let dark_bands = merge_bands(&row_dark, dlg_w / div, 6, 8);
+        // 输入框带高度 ≈ 框宽的 4.4%（全图 53/1204、特写 40/902，跨缩放一致）。
+        // 标题栏区、底部面板、场景暗块也会形成长暗段（特写图底部全宽暗区 run=899
+        // 远大于输入框 run=232），故按「带高 ≤ 框宽/15」过滤后，按暗段质量降序
+        // 逐带尝试聚簇，取第一个结构合法（2~3 个等宽簇）的带
+        let mut cands: Vec<&Band> = dark_bands.iter().collect();
+        cands.sort_by_key(|b| {
+            std::cmp::Reverse(row_dark[b.start as usize..=b.end as usize].iter().sum::<u32>())
+        });
+        for band in cands {
+            let (y0, y1) = (band.start, band.end);
+            let hh = y1 - y0 + 1;
+            if hh < 10 || hh > dlg_w / 15 {
+                continue;
+            }
+            let mut col_dark = vec![0u32; w as usize];
+            for y in y0..=y1 {
+                for x in dx0..=dx1 {
+                    if sc.is_input_rel(x, y, p) {
+                        col_dark[x as usize] += 1;
+                    }
+                }
+            }
+            let col_thr = (hh as f64 * 0.5) as u32;
+            let cl = merge_bands(&col_dark, col_thr, 12, (hh as f64 * 0.3) as u32);
+            let max_w = cl
+                .iter()
+                .map(|b| b.end - b.start + 1)
+                .max()
+                .unwrap_or(0);
+            let keep: Vec<Band> = cl
+                .iter()
+                .filter(|b| b.end - b.start + 1 >= std::cmp::max(40, max_w * 3 / 5))
+                .copied()
+                .collect();
+            if keep.len() < 2 || keep.len() > 3 {
+                continue;
+            }
+            let kmin = keep
+                .iter()
+                .map(|b| b.end - b.start + 1)
+                .min()
+                .unwrap_or(0);
+            let kmax = keep
+                .iter()
+                .map(|b| b.end - b.start + 1)
+                .max()
+                .unwrap_or(0);
+            if kmin * 4 < kmax * 3 {
+                continue; // 等宽校验：宽度比 < 0.75 说明混入阴影/噪声簇
+            }
+            clusters = keep;
+            input_xy = Some((y0, y1));
+            break 'layers;
         }
-        clusters = cl;
-        input_xy = Some((y0, y1));
-        break;
     }
     let (in_y0, in_y1) = input_xy.ok_or("未定位到输入框区域")?;
     let in_h = in_y1 - in_y0 + 1;
@@ -408,52 +568,90 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
     //    排除窗口标题栏文字/控制按钮（实测会以更高带抢走密文选择），
     //    同时保证覆盖卡内文字区（≈5~6.5×框高）。不做卡片顶边检测——
     //    部分配色下卡片底色与页面底色几乎同值（JPG 特写 B 通道仅差 ~4），顶边判定不可靠。
-    //    密文 = 最低带（最靠近输入框；输入框顶边光晕 h≤3 被 min_h 过滤，
-    //    分隔线 G 值低于阈值不形成带），标签 = 密文上方最近带。
+    //    密文选择用跨簇共识：真实密文行在三张卡片处于同一像素行，光标悬在
+    //    密文下方形成的更低的假带（实拍踩坑：亮条抢走密文带 → 卡片数 2）
+    //    不会跨簇对齐，可安全剔除；无共识（仅 1 簇）时退回最低带。
+    //    标签 = 密文上方最近带；主阈值失败时以 3/4 阈值兜底重试一次。
     let text_thr = (p.1 + 65).clamp(100, 210);
     let card_g = (p.1 + 20).clamp(30, 120) as u8;
     let band_top = (dy0 + dlg_h / 10).max(in_y0.saturating_sub(in_h * 8));
-    let mut rois = Vec::new();
-    for b in &clusters {
-        let (cx0, cx1) = (b.start, b.end);
-        let card_w = cx1 - cx0 + 1;
-        if card_w < 40 {
-            continue;
-        }
+    let cards: Vec<&Band> = clusters
+        .iter()
+        .filter(|b| b.end - b.start + 1 >= 40)
+        .collect();
+
+    let extract = |cx0: u32, cx1: u32, thr: u32| -> Vec<Band> {
         let mut row_text = vec![0u32; (in_y0 - band_top) as usize];
         for ty in band_top..in_y0 {
             let mut c = 0u32;
             for x in cx0..=cx1 {
-                if sc.is_text(x, ty, text_thr) {
+                if sc.is_text(x, ty, thr) {
                     c += 1;
                 }
             }
             row_text[(ty - band_top) as usize] = c;
         }
-        let bands = merge_bands(&row_text, 3, 3, 4);
-        let bands: Vec<Band> = bands
-            .iter()
+        merge_bands(&row_text, 3, 3, 4)
+            .into_iter()
             .map(|b| Band { start: b.start + band_top, end: b.end + band_top })
-            .collect();
-        // 密文 = 最低带（最靠近输入框），标签 = 密文上方最近的带
-        let cipher = match bands.iter().max_by_key(|b| b.start) {
-            Some(v) => *v,
-            None => continue,
-        };
-        if cipher.end - cipher.start + 1 < in_h / 4 {
-            continue; // 疑似边框光晕
+            .collect()
+    };
+    // 主阈值下先收集每簇文字带（共识比对基准）
+    let primary: Vec<Vec<Band>> = cards
+        .iter()
+        .map(|b| extract(b.start, b.end, text_thr))
+        .collect();
+
+    let mut rois = Vec::new();
+    for (i, b) in cards.iter().enumerate() {
+        let (cx0, cx1) = (b.start, b.end);
+        let fallback_thr = (text_thr * 3 / 4).max(60);
+        let mut found: Option<(Band, Band)> = None;
+        for thr in [text_thr, fallback_thr] {
+            let fallback_bands;
+            let bands = if thr == text_thr {
+                &primary[i]
+            } else {
+                fallback_bands = extract(cx0, cx1, thr);
+                &fallback_bands
+            };
+            if bands.is_empty() {
+                continue;
+            }
+            // 密文 = 与其它簇行范围一致（±8px）的最低带；无共识则退回最低带
+            let cipher = *bands
+                .iter()
+                .rev()
+                .find(|bd| {
+                    primary.iter().enumerate()
+                        .filter(|(j, _)| *j != i)
+                        .any(|(_, obs)| {
+                            obs.iter().any(|ob| {
+                                bd.start.abs_diff(ob.start) <= 8 && bd.end.abs_diff(ob.end) <= 8
+                            })
+                        })
+                })
+                .unwrap_or_else(|| bands.iter().max_by_key(|bd| bd.start).unwrap());
+            if cipher.end - cipher.start + 1 < in_h / 4 {
+                continue; // 疑似边框光晕
+            }
+            let label = match bands
+                .iter()
+                .filter(|b| b.end + 2 < cipher.start)
+                .max_by_key(|b| b.end)
+            {
+                Some(v) => *v,
+                None => continue,
+            };
+            if cipher.end - cipher.start < label.end - label.start {
+                continue; // 密文字号应大于标签，异常则此卡判废
+            }
+            found = Some((cipher, label));
+            break;
         }
-        let label = match bands
-            .iter()
-            .filter(|b| b.end + 2 < cipher.start)
-            .max_by_key(|b| b.end)
-        {
-            Some(v) => *v,
-            None => continue,
+        let Some((cipher, label)) = found else {
+            continue;
         };
-        if cipher.end - cipher.start < label.end - label.start {
-            continue; // 密文字号应大于标签，异常则此卡判废
-        }
 
         let pad_x = 6u32;
         let pad_y = 5u32;
@@ -759,13 +957,46 @@ fn solve_image(
         let mut rows = Vec::new();
 
         for (i, roi) in rois.iter().enumerate() {
-            // 标签行：多级放大（4x/2x/6x）+ G 通道二值化（阈值随卡片底色自适应）+ 白边画布 -> 中文引擎，
-            // 解题图可能被系统缩放显示，固定倍率会失配，逐级尝试直到解析出「前/后移 N 位」
+            // ===== 密文优先：放大/预处理预算优先服务密文清晰度 =====
+            // 2x 为主 3x 兜底，英文引擎优先中文兜底；任一组合得到合法词长即采纳
+            let cipher_bg = *img.get_pixel(roi.cipher.x.min(img.width() - 1), roi.cipher.y.min(img.height() - 1));
+            let mut cipher: Option<String> = None;
+            for &scale in &[CIPHER_UPSCALE, 3] {
+                let up = crop_upscale(img, roi.cipher, scale);
+                let png = to_png(&pad_canvas(&up, 16, cipher_bg))?;
+                let raw = match en.and_then(|e| ocr::recognize_png(e, &png).ok()) {
+                    Some(t) => t,
+                    None => match ocr::recognize_png(zh, &png) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            error!("[solver] 卡{} 密文 OCR 失败 ({}x): {}", i + 1, scale, e);
+                            continue;
+                        }
+                    },
+                };
+                let c = strip_ws_upper(&raw);
+                if c.len() >= WORD_MIN && c.len() <= WORD_MAX {
+                    cipher = Some(c);
+                    break;
+                }
+                error!("[solver] 卡{} 密文长度异常 ({}x): {} 字符", i + 1, scale, c.len());
+            }
+            // 优先级3：密文也识别不到 -> 留空位由用户在结果窗口手动输入密文
+            let Some(cipher) = cipher else {
+                rows.push(json!({"cipher": "", "label": "", "answer": "", "status": "input", "msg": "密文未识别"}));
+                continue;
+            };
+
+            // 自学习优先：历史修正记录覆盖一切
+            if let Some(a) = answers.get(&cipher) {
+                rows.push(json!({"cipher": cipher, "label": "", "answer": a, "status": "learned"}));
+                continue;
+            }
+
+            // ===== 标签行：预算让位密文，缩减为 4x/2x + 灰度归一化/二值化 =====
             let mut parsed: Option<(i32, u32)> = None;
-            for &scale in &[LABEL_UPSCALE, 2, 6] {
-                // 紧裁到文字外接框后再放大，避免高倍下图宽超过 OCR 引擎工作上限
+            for &scale in &[LABEL_UPSCALE, 2] {
                 let up = trim_to_text(&crop_upscale(img, roi.label, scale), roi.text_thr as u8);
-                // 先灰度归一化（平滑字形），再硬二值化兜底
                 let label_gray = normalize_gray(&up, roi.card_g);
                 let label_bin = binarize_g(&up, roi.text_thr as u8);
                 let mut parsed_now = None;
@@ -788,46 +1019,23 @@ fn solve_image(
                     break;
                 }
             }
-            let (dir, n) = match parsed {
-                Some(v) => v,
-                None => {
-                    error!("[solver] 卡{} 标签解析失败", i + 1);
-                    rows.push(json!({"cipher": "", "label": "", "answer": "", "status": "error", "msg": "标签解析失败"}));
-                    continue;
+
+            // ===== 分级输出：词表反查（密文唯一决定解法）> 标签计算 > 手动位移 =====
+            let table = cipher_table_snapshot();
+            let (dir, n, answer, status) = if let Some((td, tn, ta)) = table.get(&cipher) {
+                // 优先级1/2 共用：词表命中即定案（优先级1 标签也有时词表同样是真值）
+                if parsed.is_none() {
+                    info!("[solver] 卡{} 标签未识别，词表命中 {} -> {}", i + 1, cipher, ta);
                 }
-            };
-
-            // 密文行：2x 放大原样 -> 加同色边距画布 -> 英文引擎优先，中文引擎兜底
-            let cipher_bg = *img.get_pixel(roi.cipher.x.min(img.width() - 1), roi.cipher.y.min(img.height() - 1));
-            let cipher_up = crop_upscale(img, roi.cipher, CIPHER_UPSCALE);
-            let cipher_png = to_png(&pad_canvas(&cipher_up, 16, cipher_bg))?;
-            let cipher_raw = match en.and_then(|e| ocr::recognize_png(e, &cipher_png).ok()) {
-                Some(t) => t,
-                None => match ocr::recognize_png(zh, &cipher_png) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        error!("[solver] 卡{} 密文 OCR 失败: {}", i + 1, e);
-                        rows.push(json!({"cipher": "", "label": "", "answer": "", "status": "error", "msg": "密文识别失败"}));
-                        continue;
-                    }
-                },
-            };
-            let cipher = strip_ws_upper(&cipher_raw);
-            if cipher.len() < WORD_MIN || cipher.len() > WORD_MAX {
-                error!("[solver] 卡{} 密文长度异常: {} 字符", i + 1, cipher.len());
-                rows.push(json!({"cipher": "", "label": "", "answer": "", "status": "error", "msg": "密文识别失败"}));
-                continue;
-            }
-
-            // 按标签语义解密
-            let plain = caesar(&cipher, dir, n);
-            // 自学习优先：历史修正记录覆盖计算结果
-            let (answer, status) = if let Some(a) = answers.get(&cipher) {
-                (a.clone(), "learned")
-            } else if WORDS.contains(&plain.as_str()) {
-                (plain, "ok")
+                (*td, *tn, ta.clone(), "table")
+            } else if let Some((d, n)) = parsed {
+                // 词表未收（密文 OCR 可能有误差）：按标签语义计算，无法校验
+                (d, n, caesar(&cipher, d, n), "unknown")
             } else {
-                (plain, "unknown")
+                // 优先级2末端：标签与词表都失败 -> 手动 +/- 按键
+                error!("[solver] 卡{} 标签解析失败且词表未命中，密文 {} 待手动位移", i + 1, cipher);
+                rows.push(json!({"cipher": cipher, "label": "", "answer": "", "status": "manual", "msg": "手动选位移"}));
+                continue;
             };
             let dir_text = if dir > 0 { "前移" } else { "后移" };
             rows.push(json!({

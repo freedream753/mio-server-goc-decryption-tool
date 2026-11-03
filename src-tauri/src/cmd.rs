@@ -126,12 +126,41 @@ pub fn hide_result_window() {
     crate::window::hide_result_window();
 }
 
-// 自学习：结果窗口答案修正入口，写入本地 JSON，后续识别优先参考
+// 手动位移输入框聚焦时调用：程序化激活结果窗口让键盘输入到达（NOACTIVATE 窗口点击不激活）
 #[tauri::command]
-pub fn save_correction(cipher: String, answer: String) {
-    if let Err(e) = crate::solver::save_correction(&cipher, &answer) {
-        warn!("[solver] 答案修正写入失败: {}", e);
-    }
+pub fn focus_result_window() {
+    crate::window::focus_result_window();
+}
+
+// 设置页/结果窗口用：当前生效词表（自定义 words.json 覆盖优先，否则内置默认）
+#[tauri::command]
+pub fn get_answer_words() -> Vec<String> {
+    crate::solver::answer_words()
+}
+
+// 设置页用：当前是否为自定义词表（words.json 是否存在），控制「恢复默认」按钮状态
+#[tauri::command]
+pub fn is_custom_words() -> bool {
+    crate::solver::is_custom_words()
+}
+
+// 设置页：保存自定义答案词表（立即生效并持久化）
+#[tauri::command]
+pub fn save_answer_words(words: Vec<String>) -> Result<usize, String> {
+    crate::solver::save_answer_words(words)
+}
+
+// 设置页：恢复内置默认词表
+#[tauri::command]
+pub fn reset_answer_words() -> Result<(), String> {
+    crate::solver::reset_answer_words()
+}
+
+// 自学习：结果窗口答案修正入口，写入本地 JSON，后续识别优先参考
+// 错误上抛给前端提示（写盘失败时不能静默成功，误导用户以为修正已生效）
+#[tauri::command]
+pub fn save_correction(cipher: String, answer: String) -> Result<(), String> {
+    crate::solver::save_correction(&cipher, &answer)
 }
 
 // 自学习：设置页读取词库（密文 -> 答案映射）

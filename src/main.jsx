@@ -14,8 +14,7 @@ if (import.meta.env.PROD) {
     });
 }
 
-initStore().then(async () => {
-    await initEnv();
+const renderApp = () => {
     const rootElement = document.getElementById('root');
     const root = ReactDOM.createRoot(rootElement);
     root.render(
@@ -25,4 +24,15 @@ initStore().then(async () => {
             </NextThemesProvider>
         </NextUIProvider>
     );
-});
+};
+
+initStore()
+    .then(async () => {
+        await initEnv();
+        renderApp();
+    })
+    .catch((e) => {
+        // 初始化链任何一步失败都不留白屏：降级渲染页面（配置项走默认值）
+        console.error('窗口初始化失败，降级渲染:', e);
+        renderApp();
+    });

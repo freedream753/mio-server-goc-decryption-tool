@@ -394,6 +394,29 @@ pub fn show_result_window() {
     }
 }
 
+// 手动位移输入框需要键盘焦点：NOACTIVATE 窗口鼠标点击不会激活本窗口，
+// 由前端在输入框聚焦时调用（程序化激活不受 NOACTIVATE 限制，仅在用户主动点输入框时发生）
+pub fn focus_result_window() {
+    if let Some(app) = APP.get() {
+        if let Some(window) = app.get_window("result") {
+            #[cfg(target_os = "windows")]
+            {
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                if let Ok(hwnd) = window.hwnd() {
+                    unsafe {
+                        let _ = SetForegroundWindow(HWND(hwnd.0 as *mut _));
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = window.set_focus();
+            }
+        }
+    }
+}
+
 // Rust 侧兜底：到期后由常驻回收线程隐藏结果窗口（前端 timer 被节流时靠它保证消失）。
 // 拖动窗口时 Win32 处于模态循环，Moved 事件高频到达，此处只刷新截止时刻，
 // 不为每个事件单独起线程。

@@ -126,6 +126,7 @@ Full rewrite after the game updated to a three-card puzzle page:
 5. **Self-learning:** Corrections made in the result window are remembered permanently — if the game's semantics ever change, one fix is enough
 6. **Filter adaptation:** Relative color-order detection + grayscale normalization, compatible with color drift from NVIDIA Freestyle / in-game brightness filters
 7. Cipher word-length limit extended to 3–12 letters; the old manual-selection pipeline is retired
+8. **Field localization hardening:** Adaptive column-projection thresholds, layered fallback + equal-width cluster validation for the input box, and cross-cluster consensus for cipher bands — fixing recognition failures in real-world scenes such as dimmed holograms and cursor hover overlap
 
 ### v1.0.1 (2026-10-27)
 
