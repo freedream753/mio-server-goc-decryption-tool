@@ -292,7 +292,7 @@ fn apply_result_ex_style(window: &Window) {
             #[cfg(target_pointer_width = "64")]
             let flags = (WS_EX_NOACTIVATE.0 | WS_EX_TOPMOST.0) as isize;
             #[cfg(target_pointer_width = "32")]
-            let flags = WS_EX_NOACTIVATE.0 | WS_EX_TOPMOST.0;
+            let flags = (WS_EX_NOACTIVATE.0 | WS_EX_TOPMOST.0) as i32;
             SetWindowLongPtrW(h, GWL_EXSTYLE, ex | flags);
         }
     }
