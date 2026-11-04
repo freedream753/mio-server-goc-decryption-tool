@@ -36,3 +36,11 @@ release-assets/
 .trae-html-share-packages/
 新用例/
 老用例/
+
+# Local add-on projects / snapshots
+goc-ocr-test/
+GOC解题妙妙小工具-源代码.zip
+
+# Agent collaboration memory (local, not part of the shipped repo)
+CLAUDE.md
+memory/
