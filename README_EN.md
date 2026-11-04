@@ -41,6 +41,8 @@ Automatically recognizes the three cipher cards on the puzzle page, decrypts the
 
 5. **Self-learning corrections:** If a recognition is wrong, edit the answer directly in the result window. Corrections are saved to a local JSON file and preferred in future recognition — fix once, remembered forever.
 
+6. **Region-select from the result window:** A box-select button in the result window header (the four-corner icon right of ⠿) lets you drag-select any screen area for recognition — a fallback for high-resolution / high-DPI scenes where automatic locating fails. Small selections are upscaled automatically.
+
 ## How It Works
 
 ```
@@ -61,9 +63,9 @@ Grab the single-file portable exe from the [Releases](../../releases) page:
 
 | File | Architecture |
 |---|---|
-| `GOC-Solver-v1.0.3-x64.exe` | 64-bit Intel / AMD |
-| `GOC-Solver-v1.0.3-x86.exe` | 32-bit x86 |
-| `GOC-Solver-v1.0.3-arm64.exe` | ARM64 |
+| `GOC-Solver-v1.0.4-x64.exe` | 64-bit Intel / AMD |
+| `GOC-Solver-v1.0.4-x86.exe` | 32-bit x86 |
+| `GOC-Solver-v1.0.4-arm64.exe` | ARM64 |
 
 Single file, no external DLL dependencies, fully offline.
 
@@ -113,7 +115,23 @@ Make sure the Chinese language pack is installed (Settings → Time & Language �
 Since v1.0.3, color detection adapts to luminance-type filters such as NVIDIA Freestyle / in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
 </details>
 
+<details>
+<summary><b>Failing on 4K / high-resolution, or an "interface too small" hint?</b></summary>
+
+Since v1.0.4, small UIs on high-resolution screens are adapted automatically (small-UI parameter set + OCR scale derived from measured glyph height). If it still fails, use the box-select button in the result window header to drag-select the full puzzle dialog (labels, ciphers and input box included) — small selections are upscaled 2x before recognition. Raising the in-game UI scale also helps a lot.
+</details>
+
 ## Changelog
+
+### v1.0.4 (2026-11-04) — Region-Select Returns + High-Res / 4K Adaptation
+
+1. **Region-select from the result window:** New four-corner button next to ⠿ in the header — click to hide the result window, drag-select a full-screen region, recognize, and get results back in the result window; the v1.0.1 manual selection capability returns
+2. **Small-selection upscaling:** Selections smaller than 1100×700 are upscaled 2x (CatmullRom) before entering the pipeline, bringing 4K@100% small text back into the tuned size range
+3. **Cipher-only solving:** When no "shift forward / backward" label is present, the cipher is read directly via column-projection segmentation, with a three-level fallback: learned corrections → built-in word list → manual ± buttons
+4. **4K field localization fix:** Low-watermark + 70-row bridging extension for vertical bands, re-joining dialog bands torn apart by dark input-box rows
+5. **Degraded fallback for failed localization:** When automatic locating fails, reads bands directly within the dialog area using a blue-dark mask + row-band high-pass, keeping only high-confidence results
+6. **High-resolution small-UI adaptation:** Screens ≥2560 px wide automatically retry with a small-UI parameter set; OCR magnification (2–8x) is derived from measured glyph height when the input box is too small
+7. **Fixed near-white pixel misdetection:** Color-detection channel arithmetic changed from u8 to u16, eliminating addition wrap-around that misread near-white pixels as dark blue — the root cause of failures under white night-vision filters
 
 ### v1.0.3 (2026-11-03) — New Puzzle Page Adaptation
 

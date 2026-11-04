@@ -1,6 +1,6 @@
 [package]
 name = "goc-solver"
-version = "1.0.3"
+version = "1.0.4"
 description = "GOC Caesar Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
