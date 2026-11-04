@@ -191,6 +191,28 @@ static LAST_MANUAL_TRIGGER: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 const MANUAL_SMALL_W: u32 = 1100;
 const MANUAL_SMALL_H: u32 = 700;
 
+// 手动框选前置步骤失败的用户可见反馈：ocr_recognize 命令先隐藏结果窗口再拉起
+// 框选窗，此处只写日志的话用户点了按钮会毫无反应，须把错误卡片推回结果窗口
+fn manual_fail_notice(msg: String) {
+    error!("[solver] 手动框选失败: {}", msg);
+    let payload = json!({
+        "cards": [{
+            "cipher": "--",
+            "label": "",
+            "answer": "",
+            "status": "error",
+            "msg": format!("手动识别失败：{}", msg),
+        }],
+        "show": true,
+    });
+    *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
+    if let Some(app) = APP.get().cloned() {
+        let _ = app.run_on_main_thread(move || {
+            result_window_notify(payload);
+        });
+    }
+}
+
 // 手动框选入口：截图窗口框选完成（success 事件）后调用。
 // 只复用 v1.0.1 的框选交互：用户选区图已在 pot_screenshot_cut.png，
 // 拷贝为管线标准输入 pot_screenshot_full.png 后走 v1.0.3 自动管线
@@ -205,19 +227,28 @@ pub fn solver_recognize_manual() {
         return;
     }
 
+    // in-flight 预检：识别进行中时新触发会被 spawn_solve 静默丢弃，
+    // 若先执行下方拷贝/预放大，会覆盖进行中任务的数据源 pot_screenshot_full.png。
+    // 文件操作前先挡掉；真正的权威判定仍在 spawn_solve 的 CAS（预检到触发的
+    // 窗口极窄，残留竞态由 CAS 兜底丢弃）
+    if SOLVE_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) {
+        info!("[solver] 已有识别任务进行中，忽略本次手动框选触发");
+        return;
+    }
+
     let (from, to) = match (
         cache_file("pot_screenshot_cut.png"),
         cache_file("pot_screenshot_full.png"),
     ) {
         (Ok(f), Ok(t)) => (f, t),
         _ => {
-            error!("[solver] 手动框选缓存路径解析失败");
+            manual_fail_notice("缓存路径解析失败".into());
             return;
         }
     };
     if let Err(e) = std::fs::copy(&from, &to) {
         // 选区图缺失/拷贝失败时不回退旧全屏缓存，避免用陈旧图给出误导结果
-        error!("[solver] 框选选区图拷贝失败: {}", e);
+        manual_fail_notice(format!("框选选区图读取失败: {}", e));
         return;
     }
     // 小图预放大：读取失败不阻塞主流程（按原图进管线，由管线自行兜底报错）。
@@ -306,6 +337,26 @@ fn solve_flow(capture: bool, show: bool, manual: bool) {
     }
 }
 
+// 结果收尾（run_solve 与 run_cipher_fallback 共用）：取第一个有效答案写入
+// 剪贴板，构造并缓存结果 payload，保证两条路径的复制/展示行为一致
+fn finalize_rows(rows: Vec<Value>) -> Value {
+    // 默认复制第一个有效答案（跳过空答案行：首卡为 input/manual 兜底时仍复制后续有效卡）
+    let first = rows.iter().find(|r| {
+        r["status"] != json!("error") && r["answer"].as_str().map_or(false, |a| !a.is_empty())
+    });
+    if let Some(ans) = first.and_then(|r| r["answer"].as_str()) {
+        if let Some(app) = APP.get() {
+            use tauri::ClipboardManager;
+            if let Err(e) = app.clipboard_manager().write_text(ans) {
+                warn!("[solver] 剪贴板写入失败: {}", e);
+            }
+        }
+    }
+    let payload = json!({ "cards": rows, "show": true });
+    *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
+    payload
+}
+
 // Ok(payload) = 解题成功（或带错误卡片的提示 payload）
 fn run_solve(capture: bool) -> Result<Value, String> {
     if capture {
@@ -318,25 +369,7 @@ fn run_solve(capture: bool) -> Result<Value, String> {
     if rows.is_empty() {
         return Err("所有卡片识别失败".into());
     }
-    // 默认复制第一个有效答案（跳过空答案行：首卡为 input/manual 兜底时仍复制后续有效卡）
-    let first = rows.iter().find(|r| {
-        r["status"] != json!("error") && r["answer"].as_str().map_or(false, |a| !a.is_empty())
-    });
-    if let Some(r) = first {
-        if let Some(ans) = r["answer"].as_str() {
-            if !ans.is_empty() {
-                if let Some(app) = APP.get() {
-                    use tauri::ClipboardManager;
-                    if let Err(e) = app.clipboard_manager().write_text(ans) {
-                        warn!("[solver] 剪贴板写入失败: {}", e);
-                    }
-                }
-            }
-        }
-    }
-    let payload = json!({ "cards": rows, "show": true });
-    *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
-    Ok(payload)
+    Ok(finalize_rows(rows))
 }
 
 // 手动框选「密文直读 + 词表反查」兜底：选区只有密文（无标签/输入框）时，
@@ -348,23 +381,7 @@ fn run_cipher_fallback() -> Result<Value, String> {
     if rows.is_empty() {
         return Err("选区中未识别出任何密文".into());
     }
-    // 与主管线一致：默认复制第一个有效答案
-    let first = rows.iter().find(|r| {
-        r["status"] != json!("error") && r["answer"].as_str().map_or(false, |a| !a.is_empty())
-    });
-    if let Some(r) = first {
-        if let Some(ans) = r["answer"].as_str() {
-            if let Some(app) = APP.get() {
-                use tauri::ClipboardManager;
-                if let Err(e) = app.clipboard_manager().write_text(ans) {
-                    warn!("[solver] 剪贴板写入失败: {}", e);
-                }
-            }
-        }
-    }
-    let payload = json!({ "cards": rows, "show": true });
-    *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
-    Ok(payload)
+    Ok(finalize_rows(rows))
 }
 
 // 密文直读：列投影把选区分成若干文字段（游戏三卡密文同行、卡间大空隙），
@@ -425,6 +442,9 @@ fn solve_cipher_only(img: &RgbaImage) -> Result<Vec<Value>, String> {
         let table = cipher_table_snapshot();
         let mut rows: Vec<Value> = Vec::new();
         for (i, b) in bands.iter().enumerate() {
+            if rows.len() >= 6 {
+                break; // 已达上限（游戏只有三卡），剩余段无需再 OCR
+            }
             let x1 = (b.end + 1).min(w);
             let seg = img.view(b.start, 0, x1 - b.start, h).to_image();
             // 紧裁到文字外接框：输入框边框/底色会撑宽分段并稀释文字占比，
@@ -509,6 +529,110 @@ fn solve_cipher_only(img: &RgbaImage) -> Result<Vec<Value>, String> {
     }
 }
 
+// 自动路径降级兜底：卡片结构定位失败但对话框区域已定位时，对对话框裁区跑
+// 「密文直读 + 词表反查」。只保留词表命中/自学习的高置信结果——manual 行多
+// 来自标题/HUD 等 OCR 噪声且无标签约束，直接丢弃；全无置信结果时回退原
+// 定位错误，保持报障信息可读
+fn degraded_cipher_rows(img: &RgbaImage, dialog: Rect, orig_err: String) -> Result<Vec<Value>, String> {
+    let x1 = (dialog.x + dialog.w).min(img.width());
+    let y1 = (dialog.y + dialog.h).min(img.height());
+    if x1 <= dialog.x || y1 <= dialog.y {
+        return Err(orig_err);
+    }
+    let crop = img.view(dialog.x, dialog.y, x1 - dialog.x, y1 - dialog.y).to_image();
+    // 裁区常被亮色场景包围（夜视/白昼下对话框蓝暗区域之外是大片亮色），
+    // solve_cipher_only 的「暗底亮字」阈值模型会失效（bg 取 60 分位被白场
+    // 抬高，密文反低于阈值）。对话框面板、密文/标签文字均满足蓝暗色序，
+    // 先把非蓝暗色像素压黑再送直读，场景噪声同时被清除
+    let mut masked = crop.clone();
+    for px in masked.pixels_mut() {
+        let (r, g, b) = (px.0[0] as u32, px.0[1] as u32, px.0[2] as u32);
+        if !(b >= r + 20 && b >= g + 12) {
+            *px = image::Rgba([0, 0, 0, 255]);
+        }
+    }
+    // 先按行分出文字带（标题/标签/密文行），再逐带直读。整裁区直接列投影
+    // 会把全息屏/竖向亮边框并成贯穿整屏的巨段；行带按高度过滤后只剩文本行
+    // （密文 ~25px、标签 ~10px），全息屏亮带因行高超过上限被滤除
+    let (cw, ch) = masked.dimensions();
+    let mut gs: Vec<u32> = Vec::with_capacity(((cw * ch) / 4) as usize);
+    for y in (0..ch).step_by(2) {
+        for x in (0..cw).step_by(2) {
+            gs.push(masked.get_pixel(x, y).0[1] as u32);
+        }
+    }
+    gs.sort_unstable();
+    let pct = |q: f64| gs[((gs.len() as f64 - 1.0) * q) as usize];
+    let (bg, hi) = (pct(0.6), pct(0.99));
+    if hi <= bg + 40 {
+        return Err(orig_err);
+    }
+    let thr = (bg + (hi - bg) * 45 / 100).min(255) as u32;
+    let mut row = vec![0u32; ch as usize];
+    for y in 0..ch {
+        let mut c = 0u32;
+        for x in 0..cw {
+            if masked.get_pixel(x, y).0[1] as u32 >= thr {
+                c += 1;
+            }
+        }
+        row[y as usize] = c;
+    }
+    if *row.iter().max().unwrap_or(&0) == 0 {
+        return Err(orig_err);
+    }
+    // 高通：竖向亮结构（卡片边框/对话框亮边）给每行贡献近似恒定的底噪，
+    // 会让文本行并成贯穿巨带（全息屏/白场尤其严重）；对行计数做 ±40 行
+    // 窗口最小值高通，只留局部突起（文本行）。阈值按裁宽定：一行至少能
+    // 容 3 个短词（w/12），避免被整屏大行抬高把密文行挤出
+    let mut hp = vec![0u32; ch as usize];
+    for y in 0..ch {
+        let lo = y.saturating_sub(40);
+        let hi2 = (y + 41).min(ch);
+        let m = row[lo as usize..hi2 as usize].iter().copied().min().unwrap_or(0);
+        hp[y as usize] = row[y as usize].saturating_sub(m);
+    }
+    let row_bands = merge_bands(&hp, (cw / 12).max(8), 12, 6);
+    let mut rows: Vec<Value> = Vec::new();
+    for b in row_bands {
+        if rows.len() >= 6 {
+            break; // 已达上限，剩余行带无需再 OCR
+        }
+        let bh = b.end - b.start + 1;
+        // 文本行高度窗口：过滤全息屏巨带与噪点；密文/标签行均落在窗口内
+        if !(8..=80).contains(&bh) {
+            continue;
+        }
+        let y2 = (b.end + 1).min(ch);
+        let line = masked.view(0, b.start, cw, y2 - b.start).to_image();
+        if let Ok(mut found) = solve_cipher_only(&line) {
+            for r in found.drain(..) {
+                if rows.iter().any(|x| x["cipher"] == r["cipher"]) {
+                    continue;
+                }
+                if rows.len() >= 6 {
+                    break;
+                }
+                rows.push(r);
+            }
+        }
+    }
+    let confident: Vec<Value> = rows
+        .into_iter()
+        .filter(|r| r["status"] != json!("manual"))
+        .collect();
+    if confident.is_empty() {
+        Err(orig_err)
+    } else {
+        info!(
+            "[solver] 结构定位失败({})，降级密文直读得到 {} 个高置信结果",
+            orig_err,
+            confident.len()
+        );
+        Ok(confident)
+    }
+}
+
 // ---------------- 截图与加载 ----------------
 
 fn cache_file(name: &str) -> Result<PathBuf, String> {
@@ -589,6 +713,19 @@ struct UiMetrics {
     in_h: u32,
 }
 
+// 定位失败：msg 为用户可见原因；dialog 为已定位到的对话框区域（行/列带已
+// 成功时携带），供自动路径降级「密文直读」兜底使用。
+// 对话框是世界空间 UI，相机角度/动画帧会持续改变其屏幕几何与配色，任何
+// 静态守卫都无法覆盖全部视角；结构定位失败时密文行通常仍在对话框内
+struct LocateErr {
+    msg: String,
+    dialog: Option<Rect>,
+}
+
+fn lerr(msg: &str, dialog: Option<Rect>) -> LocateErr {
+    LocateErr { msg: msg.to_string(), dialog }
+}
+
 struct Scanner<'a> {
     w: u32,
     h: u32,
@@ -615,6 +752,9 @@ impl<'a> Scanner<'a> {
     #[inline]
     fn is_blue_dark(&self, x: u32, y: u32) -> bool {
         let (r, g, b) = self.rgb(x, y);
+        // 通道差用 u16 比较：u8 加法在 r>=236/g>=243 时回绕，会把近白像素
+        // 误判为蓝暗色（release 静默回绕、debug 测试档直接 panic）
+        let (r, g, b) = (r as u16, g as u16, b as u16);
         b >= r + 20 && b >= g + 12
     }
 
@@ -623,7 +763,9 @@ impl<'a> Scanner<'a> {
     #[inline]
     fn is_input_rel(&self, x: u32, y: u32, p: Rgb) -> bool {
         let (r, g, b) = self.rgb(x, y);
-        b >= r + 12 && (b as u32) * 20 <= p.2 * 17 && (g as u32) * 20 <= p.1 * 17
+        // 同 is_blue_dark：u16 比较防 u8 加法回绕
+        let b = b as u16;
+        b >= r as u16 + 12 && (b as u32) * 20 <= p.2 * 17 && (g as u32) * 20 <= p.1 * 17
     }
 
     // 亮色文字（相对页面背景 P 自适应，替代固定 G 阈值）
@@ -671,11 +813,14 @@ fn merge_bands(counts: &[u32], thr: u32, gap: u32, min_h: u32) -> Vec<Band> {
 // （4K 100%、游戏内界面缩放调低等），放宽「从场景里挑目标」的像素守卫。
 // 常规档沿用 v1.0.3 实测调优值；调用方先跑常规档，失败且截图宽 ≥ 2560
 // 时换本档重试一次（见 solve_image），正常尺寸路径零行为变化
-fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetrics), String> {
+fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetrics), LocateErr> {
     let sc = Scanner::new(img);
     let (w, h) = (sc.w, sc.h);
     if w < 200 || h < 200 {
-        return Err("框选区域过小（需至少 200x200 像素），请框选完整的解题对话框（含标签、密文与输入框）".into());
+        return Err(lerr(
+            "框选区域过小（需至少 200x200 像素），请框选完整的解题对话框（含标签、密文与输入框）",
+            None,
+        ));
     }
 
     // 1) 蓝暗色行投影 -> 最强带 = 对话框纵向范围（场景中灰/铠甲等颜色不参与）
@@ -700,8 +845,38 @@ fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetr
     let dialog = blue_bands
         .iter()
         .max_by_key(|b| row_blue[b.start as usize..=b.end as usize].iter().sum::<u32>())
-        .ok_or("未定位到对话框区域")?;
-    let (dy0, dy1) = (dialog.start, dialog.end);
+        .copied()
+        .ok_or_else(|| lerr("未定位到对话框区域", None))?;
+    let (mut dy0, mut dy1) = (dialog.start, dialog.end);
+    // 延伸合并：对话框内两类暗行会在纵向带中部撕出数十行低谷把带截断——
+    //   a) 输入框整行是全宽暗色（非蓝暗色），4K@100% 实机该行 row_blue≈102、
+    //      前后段≈800，带终止于输入框上沿，输入框检测永远扫不到真目标；
+    //   b) 半透明对话框叠在很暗的场景上时，部分行 b-r 通道差不足 20 整行落空。
+    //   选定最强带后按「低水位 row_thr/4 + 桥接 ≤70 行」向两端延伸接回被隔开的
+    //   分段；floor 之下连续超过 70 行才终止，正常场景带外全是近零行，零影响
+    let floor = (row_thr / 4).max(1);
+    let mut gap = 0u32;
+    let mut y = dy1 + 1;
+    while y < h && gap <= 70 {
+        if row_blue[y as usize] >= floor {
+            dy1 = y;
+            gap = 0;
+        } else {
+            gap += 1;
+        }
+        y += 1;
+    }
+    gap = 0;
+    let mut y = dy0 as i64 - 1;
+    while y >= 0 && gap <= 70 {
+        if row_blue[y as usize] >= floor {
+            dy0 = y as u32;
+            gap = 0;
+        } else {
+            gap += 1;
+        }
+        y -= 1;
+    }
 
     // 2) 纵向带内列投影 -> 对话框横向包络（取最强带，排除同色场景区块）
     let mut col_blue = vec![0u32; w as usize];
@@ -725,9 +900,11 @@ fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetr
     let dx = col_bands
         .iter()
         .max_by_key(|b| col_blue[b.start as usize..=b.end as usize].iter().sum::<u32>())
-        .ok_or("未定位到对话框横向范围")?;
+        .copied()
+        .ok_or_else(|| lerr("未定位到对话框横向范围", None))?;
     let (dx0, dx1) = (dx.start, dx.end);
     let dlg_w = dx1 - dx0 + 1;
+    let dlg_rect = Rect { x: dx0, y: dy0, w: dlg_w, h: dy1 - dy0 + 1 };
 
     // 3) 对话框内蓝暗色直方图众数 = 页面背景 P（内缩 8px 避开边框阴影），作为全流程自适应基准
     let mut hist: HashMap<u32, u32> = HashMap::new();
@@ -740,7 +917,10 @@ fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetr
             }
         }
     }
-    let (&pkey, _) = hist.iter().max_by_key(|(_, &c)| c).ok_or("对话框颜色统计失败")?;
+    let (&pkey, _) = hist
+        .iter()
+        .max_by_key(|(_, &c)| c)
+        .ok_or_else(|| lerr("对话框颜色统计失败", Some(dlg_rect)))?;
     let p: Rgb = (
         ((pkey >> 16) & 0xff) * 4 + 2,
         ((pkey >> 8) & 0xff) * 4 + 2,
@@ -849,11 +1029,11 @@ fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetr
             break 'layers;
         }
     }
-    let (in_y0, in_y1) = input_xy.ok_or("未定位到输入框区域")?;
+    let (in_y0, in_y1) = input_xy.ok_or_else(|| lerr("未定位到输入框区域", Some(dlg_rect)))?;
     let in_h = in_y1 - in_y0 + 1;
     let in_h_min = if small_ui { 5 } else { 10 };
     if in_h < in_h_min {
-        return Err("输入框区域高度异常".into());
+        return Err(lerr("输入框区域高度异常", Some(dlg_rect)));
     }
 
     // 6) 逐簇在输入框上方聚亮色文字带（标题 / 标签 / 密文）。
@@ -971,7 +1151,7 @@ fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetr
     }
 
     if rois.is_empty() {
-        return Err("未能从卡片中裁出有效 ROI".into());
+        return Err(lerr("未能从卡片中裁出有效 ROI", Some(dlg_rect)));
     }
     // 界面度量日志：用户报障时据此判定是否尺寸问题（截图分辨率 + 对话框尺寸 + 输入框带高）
     let metrics = UiMetrics { small_ui: in_h < 28, in_h };
@@ -1280,20 +1460,34 @@ fn solve_image(
     {
         // 定位：先常规档；失败且截图宽 ≥ 2560（2K/4K）自动换小UI档重试一次。
         // 高分辨率截图上对话框像素尺寸可能远小于调优基准（4K 100%、游戏内
-        // UI 缩放调低），常规守卫会把真目标当噪声过滤掉，需放宽参数重试
-        let (rois, ui) = match detect_cards(img, false) {
-            Ok(v) => v,
-            Err(e) => {
-                if img.width() >= 2560 {
-                    info!(
-                        "[solver] 高分辨率截图 {}x{} 常规定位失败({})，切换小UI档重试",
-                        img.width(),
-                        img.height(),
+        // UI 缩放调低），常规守卫会把真目标当噪声过滤掉，需放宽参数重试。
+        // 两档都失败但对话框区域已定位时，降级「密文直读 + 词表反查」：
+        // 对话框是世界空间 UI，相机角度/动画帧会让输入框结构守卫失守
+        // （白色夜视实机报「未定位到输入框区域」），但密文行仍在对话框内，
+        // 且密文唯一决定解法——只保留词表命中/自学习的高置信结果
+        let (rois, ui) = 'locate: {
+            match detect_cards(img, false) {
+                Ok(v) => break 'locate v,
+                Err(e) => {
+                    let err = if img.width() >= 2560 {
+                        info!(
+                            "[solver] 高分辨率截图 {}x{} 常规定位失败({})，切换小UI档重试",
+                            img.width(),
+                            img.height(),
+                            e.msg
+                        );
+                        match detect_cards(img, true) {
+                            Ok(v) => break 'locate v,
+                            Err(e2) => e2,
+                        }
+                    } else {
                         e
-                    );
-                    detect_cards(img, true)?
-                } else {
-                    return Err(e);
+                    };
+                    // 定位完全失败：已定位到对话框区域则降级「密文直读」兜底
+                    match err.dialog {
+                        Some(d) => return degraded_cipher_rows(img, d, err.msg),
+                        None => return Err(err.msg),
+                    }
                 }
             }
         };
@@ -1419,5 +1613,112 @@ fn solve_image(
             ));
         }
         Ok(rows)
+    }
+}
+
+// 临时回归测试（真实管线，非仿真）：对 新用例/ 下的实机截图直接跑
+// detect_cards 定位、逐卡密文直读（含真实 WinOCR + 词表反查）与
+// degraded_cipher_rows 降级兜底。运行方式见 regression_locate 注释。
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    fn load_case(name: &str) -> RgbaImage {
+        // 用例目录随仓库位置自适应：CARGO_MANIFEST_DIR = src-tauri，上一级为项目根
+        let p = format!("{}/../新用例/{}", env!("CARGO_MANIFEST_DIR"), name);
+        let f = std::fs::File::open(&p).unwrap_or_else(|e| panic!("打开 {} 失败: {}", p, e));
+        image::ImageReader::new(std::io::BufReader::new(f))
+            .with_guessed_format()
+            .unwrap()
+            .decode()
+            .unwrap()
+            .to_rgba8()
+    }
+
+    /// 定位回归：cargo +stable-x86_64-pc-windows-gnu test regression_locate -- --nocapture --test-threads=1
+    #[test]
+    fn regression_locate() {
+        let cases = [
+            "4K分辨率下的实机画面.png",
+            "白色夜视下的做题画面.png",
+            "用例1.png",
+            "用例2.png",
+            "测试画面（全）.png",
+            "新解题画面.jpg",
+        ];
+        for c in cases {
+            let img = load_case(c);
+            let (w, h) = img.dimensions();
+            match detect_cards(&img, w >= 2560) {
+                Ok((rois, ui)) => {
+                    println!("PASS {} {}x{} rois={} in_h={} small_ui={}", c, w, h, rois.len(), ui.in_h, ui.small_ui);
+                    assert_eq!(rois.len(), 3, "{}: 期望定位 3 卡", c);
+                }
+                Err(e) => panic!("FAIL {} {}x{} 定位失败: {}（dialog={:?}）", c, w, h, e.msg, e.dialog.map(|d| (d.x, d.y, d.w, d.h))),
+            }
+        }
+    }
+
+    /// 逐卡密文直读（真实 OCR + 词表反查）：
+    /// cargo +stable-x86_64-pc-windows-gnu test regression_cipher -- --nocapture --test-threads=1
+    #[test]
+    fn regression_cipher() {
+        let cases = [
+            "4K分辨率下的实机画面.png",
+            "白色夜视下的做题画面.png",
+            "用例1.png",
+            "用例2.png",
+            "测试画面（全）.png",
+            "新解题画面.jpg",
+        ];
+        for c in cases {
+            let img = load_case(c);
+            let (w, _) = img.dimensions();
+            let (rois, _) = detect_cards(&img, w >= 2560).unwrap_or_else(|e| panic!("{} 定位失败: {}", c, e.msg));
+            for (i, roi) in rois.iter().enumerate() {
+                let line = img.view(roi.cipher.x, roi.cipher.y, roi.cipher.w, roi.cipher.h).to_image();
+                match solve_cipher_only(&line) {
+                    Ok(rows) => println!("CASE {} 卡{} 直读: {:?}", c, i + 1, rows),
+                    Err(e) => println!("CASE {} 卡{} 直读失败: {}", c, i + 1, e),
+                }
+            }
+        }
+    }
+
+    /// 降级兜底全链路（掩膜 -> 行带 -> OCR -> 词表反查）：对话框区域用
+    /// 已定位 3 卡 ROI 的包围盒外扩 80px 近似（真实 LocateErr.dialog 由
+    /// 行列带得出，此处仅为触发路径）。
+    /// cargo +stable-x86_64-pc-windows-gnu test regression_degraded -- --nocapture --test-threads=1
+    #[test]
+    fn regression_degraded() {
+        for c in ["白色夜视下的做题画面.png", "4K分辨率下的实机画面.png"] {
+            let img = load_case(c);
+            let (w, h) = img.dimensions();
+            let (rois, _) = detect_cards(&img, w >= 2560).unwrap_or_else(|e| panic!("{} 定位失败: {}", c, e.msg));
+            let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0u32, 0u32);
+            for roi in &rois {
+                for r in [&roi.label, &roi.cipher] {
+                    x0 = x0.min(r.x);
+                    y0 = y0.min(r.y);
+                    x1 = x1.max(r.x + r.w);
+                    y1 = y1.max(r.y + r.h);
+                }
+            }
+            let m = 80u32;
+            let dialog = Rect {
+                x: x0.saturating_sub(m),
+                y: y0.saturating_sub(m),
+                w: (x1 - x0 + 2 * m).min(w - x0.saturating_sub(m)),
+                h: (y1 - y0 + 2 * m).min(h - y0.saturating_sub(m)),
+            };
+            match degraded_cipher_rows(&img, dialog, "测试触发".into()) {
+                Ok(rows) => {
+                    println!("DEGRADED PASS {} -> {:?} 条: {:?}", c, rows.len(), rows);
+                    assert!(!rows.is_empty(), "{}: 降级兜底应产出高置信结果", c);
+                    assert!(rows.iter().all(|r| r["status"] == json!("table") || r["status"] == json!("learned")), "{}: 仅允许 table/learned", c);
+                }
+                Err(e) => panic!("DEGRADED FAIL {}: {}", c, e),
+            }
+        }
     }
 }
