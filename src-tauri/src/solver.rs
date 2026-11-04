@@ -576,8 +576,17 @@ struct Band {
 struct CardRoi {
     label: Rect,
     cipher: Rect,
+    cipher_h: u32, // 密文带高（不含边距），小UI档 OCR 倍率反推依据
+    label_h: u32,  // 标签带高（不含边距）
     text_thr: u32, // 该卡的文字判定阈值（随卡片底色自适应）
     card_g: u8,    // 卡片底色 G 通道（灰度归一化的白场基准）
+}
+
+// 界面尺寸度量：小UI档判定 + OCR 倍率反推依据。
+// in_h（输入框带高）是跨配色/跨缩放稳定的尺寸基准（全图 53px、特写 40px）
+struct UiMetrics {
+    small_ui: bool, // 输入框带高显著低于调优基准（< 28px ≈ 基准的 70%）
+    in_h: u32,
 }
 
 struct Scanner<'a> {
@@ -658,7 +667,11 @@ fn merge_bands(counts: &[u32], thr: u32, gap: u32, min_h: u32) -> Vec<Band> {
     bands
 }
 
-fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
+// small_ui = 小UI参数档：服务高分辨率截图上对话框/字号显著偏小的场景
+// （4K 100%、游戏内界面缩放调低等），放宽「从场景里挑目标」的像素守卫。
+// 常规档沿用 v1.0.3 实测调优值；调用方先跑常规档，失败且截图宽 ≥ 2560
+// 时换本档重试一次（见 solve_image），正常尺寸路径零行为变化
+fn detect_cards(img: &RgbaImage, small_ui: bool) -> Result<(Vec<CardRoi>, UiMetrics), String> {
     let sc = Scanner::new(img);
     let (w, h) = (sc.w, sc.h);
     if w < 200 || h < 200 {
@@ -676,7 +689,14 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
         }
         row_blue[y as usize] = c;
     }
-    let blue_bands = merge_bands(&row_blue, w / 6, 40, 200);
+    // 行阈值 = 对话框须达到的像素宽度下限：常规档 w/6 假定对话框占屏宽 1/6 以上；
+    // 小UI档放宽到 w/16（4K 上 918px 对话框仅占屏宽 24%，更低 UI 缩放还会更小）
+    let (row_thr, row_gap, row_min_h) = if small_ui {
+        ((w / 16).max(120), 20, 120)
+    } else {
+        (w / 6, 40, 200)
+    };
+    let blue_bands = merge_bands(&row_blue, row_thr, row_gap, row_min_h);
     let dialog = blue_bands
         .iter()
         .max_by_key(|b| row_blue[b.start as usize..=b.end as usize].iter().sum::<u32>())
@@ -697,7 +717,11 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
     // 撑高（动画闪烁使带高逐帧波动），固定阈值会在带高偏高的帧整体落空
     // （实机日志 33 次该阶段失败），对话框列恒为最大值附近，比例阈值随帧自适应
     let max_col = *col_blue.iter().max().unwrap_or(&0);
-    let col_bands = merge_bands(&col_blue, (max_col / 4).max(16), 30, (dlg_h / 6).max(60));
+    let col_bands = if small_ui {
+        merge_bands(&col_blue, (max_col / 4).max(8), 12, (dlg_h / 6).max(30))
+    } else {
+        merge_bands(&col_blue, (max_col / 4).max(16), 30, (dlg_h / 6).max(60))
+    };
     let dx = col_bands
         .iter()
         .max_by_key(|b| col_blue[b.start as usize..=b.end as usize].iter().sum::<u32>())
@@ -773,7 +797,8 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
         for band in cands {
             let (y0, y1) = (band.start, band.end);
             let hh = y1 - y0 + 1;
-            if hh < 10 || hh > dlg_w / 15 {
+            let hh_min = if small_ui { (dlg_w / 150).max(5) } else { 10 };
+            if hh < hh_min || hh > dlg_w / 15 {
                 continue;
             }
             let mut col_dark = vec![0u32; w as usize];
@@ -785,7 +810,11 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
                 }
             }
             let col_thr = (hh as f64 * 0.5) as u32;
-            let cl = merge_bands(&col_dark, col_thr, 12, (hh as f64 * 0.3) as u32);
+            let cl = if small_ui {
+                merge_bands(&col_dark, col_thr, 6, (hh as f64 * 0.3) as u32)
+            } else {
+                merge_bands(&col_dark, col_thr, 12, (hh as f64 * 0.3) as u32)
+            };
             let max_w = cl
                 .iter()
                 .map(|b| b.end - b.start + 1)
@@ -793,7 +822,10 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
                 .unwrap_or(0);
             let keep: Vec<Band> = cl
                 .iter()
-                .filter(|b| b.end - b.start + 1 >= std::cmp::max(40, max_w * 3 / 5))
+                .filter(|b| {
+                    let min_w = if small_ui { dlg_w / 30 } else { 40 };
+                    b.end - b.start + 1 >= std::cmp::max(min_w, max_w * 3 / 5)
+                })
                 .copied()
                 .collect();
             if keep.len() < 2 || keep.len() > 3 {
@@ -819,7 +851,8 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
     }
     let (in_y0, in_y1) = input_xy.ok_or("未定位到输入框区域")?;
     let in_h = in_y1 - in_y0 + 1;
-    if in_h < 10 {
+    let in_h_min = if small_ui { 5 } else { 10 };
+    if in_h < in_h_min {
         return Err("输入框区域高度异常".into());
     }
 
@@ -835,9 +868,10 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
     let text_thr = (p.1 + 65).clamp(100, 210);
     let card_g = (p.1 + 20).clamp(30, 120) as u8;
     let band_top = (dy0 + dlg_h / 10).max(in_y0.saturating_sub(in_h * 8));
+    let card_min_w = if small_ui { (dlg_w / 30).max(20) } else { 40 };
     let cards: Vec<&Band> = clusters
         .iter()
-        .filter(|b| b.end - b.start + 1 >= 40)
+        .filter(|b| b.end - b.start + 1 >= card_min_w)
         .collect();
 
     let extract = |cx0: u32, cx1: u32, thr: u32| -> Vec<Band> {
@@ -851,7 +885,7 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
             }
             row_text[(ty - band_top) as usize] = c;
         }
-        merge_bands(&row_text, 3, 3, 4)
+        merge_bands(&row_text, 3, 3, if small_ui { 3 } else { 4 })
             .into_iter()
             .map(|b| Band { start: b.start + band_top, end: b.end + band_top })
             .collect()
@@ -863,6 +897,9 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
         .collect();
 
     let mut rois = Vec::new();
+    // 跨簇共识行容差：常规档 8px；小UI档随 in_h 比例收缩，
+    // 避免小界面上相对容差过大放进假带
+    let consensus_tol = if small_ui { (in_h / 6).max(3) } else { 8 };
     for (i, b) in cards.iter().enumerate() {
         let (cx0, cx1) = (b.start, b.end);
         let fallback_thr = (text_thr * 3 / 4).max(60);
@@ -887,7 +924,8 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
                         .filter(|(j, _)| *j != i)
                         .any(|(_, obs)| {
                             obs.iter().any(|ob| {
-                                bd.start.abs_diff(ob.start) <= 8 && bd.end.abs_diff(ob.end) <= 8
+                                bd.start.abs_diff(ob.start) <= consensus_tol
+                                    && bd.end.abs_diff(ob.end) <= consensus_tol
                             })
                         })
                 })
@@ -922,17 +960,45 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
             let rh = (band.end - band.start + 1 + pad_y * 2).min(h - y);
             Rect { x, y, w: rw, h: rh }
         };
-        rois.push(CardRoi { label: mk(label), cipher: mk(cipher), text_thr, card_g });
+        rois.push(CardRoi {
+            label: mk(label),
+            cipher: mk(cipher),
+            cipher_h: cipher.end - cipher.start + 1,
+            label_h: label.end - label.start + 1,
+            text_thr,
+            card_g,
+        });
     }
 
     if rois.is_empty() {
         return Err("未能从卡片中裁出有效 ROI".into());
     }
-    info!("[solver] 预筛定位卡片数: {}", rois.len());
-    Ok(rois)
+    // 界面度量日志：用户报障时据此判定是否尺寸问题（截图分辨率 + 对话框尺寸 + 输入框带高）
+    let metrics = UiMetrics { small_ui: in_h < 28, in_h };
+    info!(
+        "[solver] 预筛定位卡片数: {}，截图 {}x{}，对话框 {}x{}，输入框带高 {}px，档位={}",
+        rois.len(), w, h, dlg_w, dlg_h, in_h,
+        if metrics.small_ui { "小UI" } else { "常规" }
+    );
+    Ok((rois, metrics))
 }
 
 // ---------------- ROI 裁剪与预处理 ----------------
+
+// 小UI档放大倍率反推：目标把实测字高拉到 ~32px（WinOCR 最佳识别区间），
+// 返回 [目标, 目标×1.5, 8x 封顶] 逐档兜底；lo 为该行倍率下限（标签小字不低于 4）
+fn adaptive_scales(band_h: u32, lo: u32) -> Vec<u32> {
+    let t = (32 / band_h.max(1)).clamp(lo, 8);
+    let mut v = vec![t];
+    let t2 = (t * 3 / 2).min(8);
+    if t2 > t {
+        v.push(t2);
+    }
+    if *v.last().unwrap() < 8 {
+        v.push(8);
+    }
+    v
+}
 
 fn crop_upscale(img: &RgbaImage, r: Rect, scale: u32) -> DynamicImage {
     let view = img.view(r.x, r.y, r.w, r.h);
@@ -1212,7 +1278,25 @@ fn solve_image(
     }
     #[cfg(target_os = "windows")]
     {
-        let rois = detect_cards(img)?;
+        // 定位：先常规档；失败且截图宽 ≥ 2560（2K/4K）自动换小UI档重试一次。
+        // 高分辨率截图上对话框像素尺寸可能远小于调优基准（4K 100%、游戏内
+        // UI 缩放调低），常规守卫会把真目标当噪声过滤掉，需放宽参数重试
+        let (rois, ui) = match detect_cards(img, false) {
+            Ok(v) => v,
+            Err(e) => {
+                if img.width() >= 2560 {
+                    info!(
+                        "[solver] 高分辨率截图 {}x{} 常规定位失败({})，切换小UI档重试",
+                        img.width(),
+                        img.height(),
+                        e
+                    );
+                    detect_cards(img, true)?
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         let answers = load_answers();
         let mut rows = Vec::new();
 
@@ -1221,8 +1305,19 @@ fn solve_image(
             // 2x 为主 3x 兜底，英文引擎优先中文兜底；任一组合得到合法词长即采纳
             let cipher_bg = *img.get_pixel(roi.cipher.x.min(img.width() - 1), roi.cipher.y.min(img.height() - 1));
             let mut cipher: Option<String> = None;
-            for &scale in &[CIPHER_UPSCALE, 3] {
-                let up = crop_upscale(img, roi.cipher, scale);
+            // 常规档固定 2x/3x；小UI档按密文实测字高反推（目标字高 ~32px）
+            let cipher_scales: Vec<u32> = if ui.small_ui {
+                adaptive_scales(roi.cipher_h, 2)
+            } else {
+                vec![CIPHER_UPSCALE, 3]
+            };
+            for &scale in &cipher_scales {
+                let mut up = crop_upscale(img, roi.cipher, scale);
+                // 高倍放大（≥4x）前先紧裁到文字外接框，防止长密文画布超
+                // WinOCR ~1000px 宽限制返回空串（常规档 2x/3x 保持原路径不动）
+                if scale >= 4 {
+                    up = trim_to_text(&up, roi.text_thr as u8);
+                }
                 let png = to_png(&pad_canvas(&up, 16, cipher_bg))?;
                 let raw = match en.and_then(|e| ocr::recognize_png(e, &png).ok()) {
                     Some(t) => t,
@@ -1253,9 +1348,15 @@ fn solve_image(
                 continue;
             }
 
-            // ===== 标签行：预算让位密文，缩减为 4x/2x + 灰度归一化/二值化 =====
+            // ===== 标签行：预算让位密文 + 灰度归一化/二值化 =====
+            // 常规档固定 4x/2x；小UI档按标签实测字高反推（下限 4x）
             let mut parsed: Option<(i32, u32)> = None;
-            for &scale in &[LABEL_UPSCALE, 2] {
+            let label_scales: Vec<u32> = if ui.small_ui {
+                adaptive_scales(roi.label_h, 4)
+            } else {
+                vec![LABEL_UPSCALE, 2]
+            };
+            for &scale in &label_scales {
                 let up = trim_to_text(&crop_upscale(img, roi.label, scale), roi.text_thr as u8);
                 let label_gray = normalize_gray(&up, roi.card_g);
                 let label_bin = binarize_g(&up, roi.text_thr as u8);
@@ -1304,6 +1405,18 @@ fn solve_image(
                 "answer": answer,
                 "status": status,
             }));
+        }
+        // 小界面兜底：输入框带高 < 20px 时字号已逼近 WinOCR 物理可识别下限，
+        // 三卡全部失败时不再给逐卡 input/manual 空位（用户无从填起），
+        // 改报明确原因引导调大游戏内界面缩放
+        if ui.small_ui
+            && ui.in_h < 20
+            && !rows.iter().any(|r| r["answer"].as_str().map_or(false, |a| !a.is_empty()))
+        {
+            return Err(format!(
+                "做题界面过小（输入框仅 {}px 高，超出识别下限），请在游戏设置中调大界面缩放后重试",
+                ui.in_h
+            ));
         }
         Ok(rows)
     }
