@@ -273,6 +273,39 @@ pub fn recognize_window() {
     let _ = window.emit("new_image", "");
 }
 
+// 全屏截图框选覆盖窗（v1.0.1 手动框选管线）：展示全屏截图，用户拖拽选出识别区域
+fn screenshot_window() -> Window {
+    let (window, exists) = build_window("screenshot", "Screenshot");
+
+    // 框选完成后由截图窗口前端 emit("success") 触发识别。
+    // tauri v1 的 Window::listen 只能收到 window 标签与自身 label 相同的 trigger
+    // （JS 全局 emit 会以「发起窗口的 label」触发 Rust 监听器），因此监听必须挂在
+    // 截图窗口自己身上；窗口每次新建时重新注册，复用时沿用已有监听，避免监听丢失。
+    // 识别走 v1.0.3 自动管线（此处只复用 v1.0.1 的框选交互）
+    if !exists {
+        let _ = window.listen("success", |_| crate::solver::solver_recognize_manual());
+    }
+
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_fullscreen(true);
+
+    let _ = window.set_always_on_top(true);
+    window
+}
+
+// 手动框选 OCR（交互复用 v1.0.1）：拉起全屏框选窗 -> 用户选区 -> 选区图接入 v1.0.3
+// 自动管线（WinOCR），结果进结果窗口。供高分辨率/高 DPI 下做题页面过小、
+// 自动管线识别失败的用户自由选择截图区域
+pub fn ocr_recognize() {
+    let window = screenshot_window();
+    // 截图窗口会被复用：其前端 useEffect 只在挂载时执行一次，复用旧窗口不会重新截屏，
+    // 导致第二次 OCR 截屏一直显示旧图/无图。这里每次触发都显式通知前端重新截屏并显示；
+    // 新建窗口时前端会在挂载阶段自行截屏（事件可能早于前端监听注册，丢失也无妨）。
+    if let Err(e) = window.emit("screenshot_request", "") {
+        warn!("Emit screenshot_request failed: {}", e);
+    }
+}
+
 // ---------------- 解题结果窗口 ----------------
 // 始终置顶 + WS_EX_NOACTIVATE（不抢焦点，不打断游戏按键交互），
 // 数据由 Rust 推送（emit solve_result），展示/复制/倒计时由前端负责。

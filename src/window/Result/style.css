@@ -57,6 +57,30 @@ body,
     cursor: move;
 }
 
+/* OCR 框选按钮：四角方框标志，拉起 v1.0.1 手动框选识别管线（先隐藏本窗口） */
+.result-ocr {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 16px;
+    color: #4ea1ff;
+    background: rgba(78, 161, 255, 0.14);
+    border: 1px solid rgba(78, 161, 255, 0.45);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.result-ocr:hover {
+    color: #ffffff;
+    background: rgba(78, 161, 255, 0.35);
+}
+
+.result-ocr:active {
+    background: rgba(78, 161, 255, 0.55);
+}
+
 .result-title {
     flex: 1;
     font-weight: 700;

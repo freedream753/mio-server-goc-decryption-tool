@@ -154,7 +154,7 @@ pub fn reset_answer_words() -> Result<(), String> {
 // 交错执行非原子写入（写坏文件 -> 解码失败报错卡），进行中直接忽略新触发
 static SOLVE_IN_FLIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn spawn_solve(capture: bool, show: bool) {
+fn spawn_solve(capture: bool, show: bool, manual: bool) {
     use std::sync::atomic::Ordering;
     if SOLVE_IN_FLIGHT
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -164,23 +164,95 @@ fn spawn_solve(capture: bool, show: bool) {
         return;
     }
     std::thread::spawn(move || {
-        solve_flow(capture, show);
+        solve_flow(capture, show, manual);
         SOLVE_IN_FLIGHT.store(false, Ordering::SeqCst);
     });
 }
 
 // 入口：热键 / 托盘 / HTTP 主路由。截图 + 弹结果窗口
 pub fn solver_recognize() {
-    spawn_solve(true, true);
+    spawn_solve(true, true, false);
 }
 
 // HTTP 隐藏验证入口：不截屏、不弹窗，直接对已有 pot_screenshot_full.png 跑管线，
 // 第一个答案写剪贴板，供无感回归测试读取
 pub fn solver_recognize_hidden() {
-    spawn_solve(false, false);
+    spawn_solve(false, false, false);
 }
 
-fn solve_flow(capture: bool, show: bool) {
+// 手动框选去重：tauri v1 的 window.listen 不会随窗口销毁清理，截图窗口反复
+// 新建后旧监听器残留累积，同一次框选会触发多次 success。300ms 窗口内的
+// 重复触发直接忽略（真实用户两次框选间隔远大于此）。
+static LAST_MANUAL_TRIGGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// 手动框选小图预放大阈值：完整对话框在 2.5K@150% 屏上物理宽约 1377px、
+// 4K@100% 屏上约 918px（管线调优基准是前者）。框选图整体明显小于基准时
+// 先 2 倍放大再交管线，使小字（4K 100%、高 DPI 缩小显示等）回到实测调优的尺寸区间
+const MANUAL_SMALL_W: u32 = 1100;
+const MANUAL_SMALL_H: u32 = 700;
+
+// 手动框选入口：截图窗口框选完成（success 事件）后调用。
+// 只复用 v1.0.1 的框选交互：用户选区图已在 pot_screenshot_cut.png，
+// 拷贝为管线标准输入 pot_screenshot_full.png 后走 v1.0.3 自动管线
+// （WinOCR + 相对色序定位），结果照常推送结果窗口展示
+pub fn solver_recognize_manual() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let prev = LAST_MANUAL_TRIGGER.swap(now, std::sync::atomic::Ordering::SeqCst);
+    if now.saturating_sub(prev) < 300 {
+        return;
+    }
+
+    let (from, to) = match (
+        cache_file("pot_screenshot_cut.png"),
+        cache_file("pot_screenshot_full.png"),
+    ) {
+        (Ok(f), Ok(t)) => (f, t),
+        _ => {
+            error!("[solver] 手动框选缓存路径解析失败");
+            return;
+        }
+    };
+    if let Err(e) = std::fs::copy(&from, &to) {
+        // 选区图缺失/拷贝失败时不回退旧全屏缓存，避免用陈旧图给出误导结果
+        error!("[solver] 框选选区图拷贝失败: {}", e);
+        return;
+    }
+    // 小图预放大：读取失败不阻塞主流程（按原图进管线，由管线自行兜底报错）。
+    // 不能用 image::open——它按扩展名判格式，而选区缓存文件名固定 .png、
+    // 内容可能是 JPG（测试拷图/部分截图源），须与 load_screenshot 一致按内容嗅探
+    let decoded = std::fs::File::open(&to)
+        .map_err(|e| e.to_string())
+        .and_then(|f| {
+            image::ImageReader::new(std::io::BufReader::new(f))
+                .with_guessed_format()
+                .map_err(|e| e.to_string())?
+                .decode()
+                .map_err(|e| e.to_string())
+        });
+    match decoded {
+        Ok(img) => {
+            let (w, h) = (img.width(), img.height());
+            if w < MANUAL_SMALL_W && h < MANUAL_SMALL_H && w > 0 && h > 0 {
+                let scaled = img.resize_exact(w * 2, h * 2, FilterType::CatmullRom);
+                if let Err(e) = scaled.save_with_format(&to, image::ImageFormat::Png) {
+                    warn!("[solver] 手动框选小图预放大失败，按原图识别: {}", e);
+                } else {
+                    info!("[solver] 手动框选小图预放大: {}x{} -> {}x{}", w, h, w * 2, h * 2);
+                }
+            } else {
+                info!("[solver] 手动框选图尺寸 {}x{}，无需预放大", w, h);
+            }
+        }
+        Err(e) => error!("[solver] 手动框选图读取失败，按原图识别: {}", e),
+    }
+    info!("[solver] 手动框选选区接入管线: {:?}", from);
+    spawn_solve(false, true, true);
+}
+
+fn solve_flow(capture: bool, show: bool, manual: bool) {
     match run_solve(capture) {
         Ok(payload) => {
             if show {
@@ -192,6 +264,24 @@ fn solve_flow(capture: bool, show: bool) {
             }
         }
         Err(e) => {
+            // 手动框选回退：完整管线失败（如只框了密文条）时，退化为
+            // 「密文直读 + 词表反查」路径——密文唯一决定解法，无需标签
+            if manual {
+                match run_cipher_fallback() {
+                    Ok(payload) => {
+                        info!("[solver] 手动框选密文直读兜底成功");
+                        if let Some(app) = APP.get().cloned() {
+                            let _ = app.run_on_main_thread(move || {
+                                result_window_notify(payload);
+                            });
+                        }
+                        return;
+                    }
+                    Err(fe) => {
+                        warn!("[solver] 密文直读兜底失败: {}", fe);
+                    }
+                }
+            }
             // 失败不再回退手动框选，直接在结果窗口提示错误
             error!("[solver] 自动管线失败: {}", e);
             if show {
@@ -247,6 +337,176 @@ fn run_solve(capture: bool) -> Result<Value, String> {
     let payload = json!({ "cards": rows, "show": true });
     *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
     Ok(payload)
+}
+
+// 手动框选「密文直读 + 词表反查」兜底：选区只有密文（无标签/输入框）时，
+// 完整管线在卡片定位阶段即失败。密文唯一决定解法（词表反查），无需标签。
+// Ok(payload) = 至少反查/标记出一条结果；Err = 选区里根本没识别出密文
+fn run_cipher_fallback() -> Result<Value, String> {
+    let img = load_screenshot()?;
+    let rows = solve_cipher_only(&img)?;
+    if rows.is_empty() {
+        return Err("选区中未识别出任何密文".into());
+    }
+    // 与主管线一致：默认复制第一个有效答案
+    let first = rows.iter().find(|r| {
+        r["status"] != json!("error") && r["answer"].as_str().map_or(false, |a| !a.is_empty())
+    });
+    if let Some(r) = first {
+        if let Some(ans) = r["answer"].as_str() {
+            if let Some(app) = APP.get() {
+                use tauri::ClipboardManager;
+                if let Err(e) = app.clipboard_manager().write_text(ans) {
+                    warn!("[solver] 剪贴板写入失败: {}", e);
+                }
+            }
+        }
+    }
+    let payload = json!({ "cards": rows, "show": true });
+    *SOLVE_RESULT.lock().unwrap() = Some(payload.clone());
+    Ok(payload)
+}
+
+// 密文直读：列投影把选区分成若干文字段（游戏三卡密文同行、卡间大空隙），
+// 每段独立放大 + OCR（整幅一次 OCR 会超 WinOCR 约 1000px 画布宽限制返回空串），
+// 逐词走「自学习 > 词表反查 > 手动位移」分级输出。词表未收录的密文仍以
+// manual 状态给出 +/- 按键，用户可手动选位移
+fn solve_cipher_only(img: &RgbaImage) -> Result<Vec<Value>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = img;
+        return Err("仅支持 Windows".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let (w, h) = img.dimensions();
+        // 亮度自适应阈值：密文条内暗底(输入框)占多数，亮字占少数。
+        // bg 取 60 分位（主色=框底色），hi 取 99 分位（文字亮峰），阈值居中偏下
+        let mut gs: Vec<u32> = Vec::with_capacity(((w * h) / 4) as usize);
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                gs.push(img.get_pixel(x, y).0[1] as u32);
+            }
+        }
+        if gs.is_empty() {
+            return Err("选区为空".into());
+        }
+        gs.sort_unstable();
+        let pct = |q: f64| gs[((gs.len() as f64 - 1.0) * q) as usize];
+        let (bg, hi) = (pct(0.6), pct(0.99));
+        let thr = if hi > bg + 40 { bg + (hi - bg) * 45 / 100 } else { return Err("选区中未发现文字".into()) };
+
+        // 列投影分段：亮像素列计数，gap 桥接 12px（字母间隙），最小宽 6px
+        let mut col = vec![0u32; w as usize];
+        for x in 0..w {
+            let mut c = 0u32;
+            for y in 0..h {
+                if img.get_pixel(x, y).0[1] as u32 >= thr {
+                    c += 1;
+                }
+            }
+            col[x as usize] = c;
+        }
+        let maxc = *col.iter().max().unwrap_or(&0);
+        if maxc == 0 {
+            return Err("选区中未发现文字".into());
+        }
+        let bands = merge_bands(&col, (maxc / 5).max(2), 12, 6);
+        if bands.is_empty() {
+            return Err("未能从选区中定位密文（请框选密文所在区域）".into());
+        }
+        info!("[solver] 密文直读定位到 {} 个文字段", bands.len());
+
+        // 每段独立 OCR：按段高自适应放大 + 背景色边距填充
+        let bgc = *img.get_pixel(0, 0);
+        let en = ocr::en_engine();
+        let zh = ocr::zh_engine();
+        let answers = load_answers();
+        let table = cipher_table_snapshot();
+        let mut rows: Vec<Value> = Vec::new();
+        for (i, b) in bands.iter().enumerate() {
+            let x1 = (b.end + 1).min(w);
+            let seg = img.view(b.start, 0, x1 - b.start, h).to_image();
+            // 紧裁到文字外接框：输入框边框/底色会撑宽分段并稀释文字占比，
+            // 导致 OCR 返回空串；裁后按真实文字尺寸计算放大倍率
+            let seg = trim_to_text(&DynamicImage::ImageRgba8(seg), thr.min(255) as u8);
+            // 按段高自适应放大；同时受段宽约束——放大后含边距不超过 900px，
+            // 避免超 WinOCR 约 1000px 画布宽限制返回空串
+            let by_h = if seg.height() < 20 {
+                4
+            } else if seg.height() < 40 {
+                3
+            } else if seg.height() < 80 {
+                2
+            } else {
+                1
+            };
+            let by_w = (900 / (seg.width() + 32).max(1)).max(1) as u32;
+            let scale = by_h.min(by_w);
+            let up = DynamicImage::ImageRgba8(image::imageops::resize(
+                &seg,
+                seg.width() * scale,
+                seg.height() * scale,
+                FilterType::CatmullRom,
+            ));
+            let png = to_png(&pad_canvas(&up, 16, bgc))?;
+            let raw = match en.as_ref().and_then(|e| ocr::recognize_png(e, &png).ok()) {
+                Some(t) => t,
+                None => match zh.as_ref() {
+                    Some(z) => ocr::recognize_png(z, &png)?,
+                    None => return Err("系统缺少 OCR 语言包".into()),
+                },
+            };
+            // 隐私边界：只记长度，不落盘文本内容
+            info!("[solver] 密文直读段{} OCR 文本长度: {}", i + 1, raw.chars().count());
+            // 段内通常只有一个密文词：先整体去掉非字母（OCR 可能把字母用空格
+            // 隔开，按词拆会只剩单字母）；整体长度异常时再按非字母分词兜底
+            let whole = strip_ws_upper(&raw);
+            let cands: Vec<String> = if (WORD_MIN..=WORD_MAX).contains(&whole.len()) {
+                vec![whole]
+            } else {
+                raw.split(|c: char| !c.is_ascii_alphabetic())
+                    .map(|tok| {
+                        tok.chars()
+                            .filter(|c| c.is_ascii_alphabetic())
+                            .map(|c| c.to_ascii_uppercase())
+                            .collect::<String>()
+                    })
+                    .filter(|t| (WORD_MIN..=WORD_MAX).contains(&t.len()))
+                    .collect()
+            };
+            for t in cands {
+                if rows.iter().any(|r| r["cipher"] == json!(t)) {
+                    continue;
+                }
+                if rows.len() >= 6 {
+                    break; // 游戏只有三卡，防 OCR 噪声词撑爆结果窗口
+                }
+                // 自学习优先（与主管线一致），其次词表反查，最后手动位移
+                if let Some(a) = answers.get(&t) {
+                    rows.push(json!({"cipher": t, "label": "", "answer": a, "status": "learned"}));
+                    continue;
+                }
+                if let Some((d, n, word)) = table.get(&t) {
+                    let dir_text = if *d > 0 { "前移" } else { "后移" };
+                    rows.push(json!({
+                        "cipher": t,
+                        "label": format!("{}{}位", dir_text, n),
+                        "answer": word,
+                        "status": "table",
+                    }));
+                    continue;
+                }
+                // 隐私边界：只记词长，不落盘密文内容
+                warn!("[solver] 密文直读段{} 词表未命中（词长 {}）", i + 1, t.len());
+                rows.push(json!({"cipher": t, "label": "", "answer": "", "status": "manual", "msg": "手动选位移"}));
+            }
+        }
+        if rows.is_empty() {
+            return Err("未能从选区中识别出密文（请框选密文所在区域）".into());
+        }
+        Ok(rows)
+    }
 }
 
 // ---------------- 截图与加载 ----------------
@@ -402,7 +662,7 @@ fn detect_cards(img: &RgbaImage) -> Result<Vec<CardRoi>, String> {
     let sc = Scanner::new(img);
     let (w, h) = (sc.w, sc.h);
     if w < 200 || h < 200 {
-        return Err("截图尺寸异常".into());
+        return Err("框选区域过小（需至少 200x200 像素），请框选完整的解题对话框（含标签、密文与输入框）".into());
     }
 
     // 1) 蓝暗色行投影 -> 最强带 = 对话框纵向范围（场景中灰/铠甲等颜色不参与）

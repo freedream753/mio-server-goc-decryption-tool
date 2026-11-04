@@ -47,6 +47,8 @@ fn http_handle(request: Request) {
         "/ocr_recognize?screenshot=false" => handle_recognize_window(request),
         // 新管线隐藏验证入口：不截屏不弹窗，对已有 pot_screenshot_full.png 跑管线，答案写剪贴板
         "/solver_recognize?screenshot=false" => handle_solver_hidden(request),
+        // 手动框选入口：对已有框选选区图（pot_screenshot_cut.png）跑管线并弹结果窗口
+        "/solver_manual" => handle_solver_manual(request),
         "/config" => handle_config(request),
         _ => warn!("Unknown request url: {}", request.url()),
     }
@@ -64,6 +66,11 @@ fn handle_solver_recognize(request: Request) {
 
 fn handle_solver_hidden(request: Request) {
     crate::solver::solver_recognize_hidden();
+    response_ok(request);
+}
+
+fn handle_solver_manual(request: Request) {
+    crate::solver::solver_recognize_manual();
     response_ok(request);
 }
 

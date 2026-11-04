@@ -94,6 +94,19 @@ pub fn font_list() -> Result<Vec<String>, Error> {
     Ok(source.all_families()?)
 }
 
+// 结果窗口 OCR 框选按钮入口（框选交互复用 v1.0.1）：
+// 先隐藏结果窗口（保证不出现在截图里），再拉起全屏框选窗；
+// 框选完成后选区图接入 v1.0.3 自动管线，结果回到结果窗口展示。
+// 窗口创建必须挪到独立线程：在 tauri 命令（IPC 回调）上下文里同步创建
+// WebView2 窗口会发生重入，协议请求管线被卡死，表现为新窗口永远停在
+// about:blank 且后续所有窗口的 WebView2 操作被连带卡死（应用假死）。
+// result/config 窗口均从普通线程创建从未出过问题，此处保持同一模式。
+#[tauri::command]
+pub fn ocr_recognize() {
+    crate::window::hide_result_window();
+    std::thread::spawn(crate::window::ocr_recognize);
+}
+
 // ---------------- v1.0.3 自动解题管线 ----------------
 
 // 结果窗口前端挂载后拉取最新解题结果（避免 emit 早于监听注册的竞态）

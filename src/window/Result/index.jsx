@@ -116,6 +116,12 @@ export default function Result() {
         }
     };
 
+    // OCR 框选按钮：先隐藏本窗口（Rust 命令内保证先隐藏再截图），
+    // 再拉起 v1.0.1 手动框选管线，供高分辨率/高 DPI 下做题页面过小时自由框选识别区域
+    const startManualOcr = () => {
+        invoke('ocr_recognize').catch(() => {});
+    };
+
     // 拖动结束（Rust 检测到左键松开）：保持冻结 2s 后重新开始 10s 倒计时
     useEffect(() => {
         const un = listen('result-drag-end', () => {
@@ -211,6 +217,21 @@ export default function Result() {
             <div className="result-header" data-tauri-drag-region>
                 {/* Tauri v1 拖拽区只识别 mousedown 的精确 target，header 子元素必须逐个带上属性 */}
                 <span className="result-grip" data-tauri-drag-region title="拖动窗口">⠿</span>
+                {/* OCR 框选按钮：四角方框标志，按下先隐藏本窗口再拉起手动框选识别。
+                    不带拖拽区属性并阻止 mousedown 冒泡，避免误启动拖动/重置 */}
+                <span
+                    className="result-ocr"
+                    title="手动框选识别：自由选择截图区域（高分辨率/高 DPI 下页面过小时使用）"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={startManualOcr}
+                >
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M1 4 V1 H4" />
+                        <path d="M8 1 H11 V4" />
+                        <path d="M11 8 V11 H8" />
+                        <path d="M4 11 H1 V8" />
+                    </svg>
+                </span>
                 <span className="result-title" data-tauri-drag-region>GOC解题妙妙小工具</span>
                 <span className="result-countdown" data-tauri-drag-region>{count}s</span>
                 {/* 关闭按钮：不带拖拽区属性，阻止 mousedown 冒泡避免误启动拖动/重置 */}
