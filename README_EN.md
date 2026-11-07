@@ -93,6 +93,8 @@ pnpm install
 pnpm tauri build
 ```
 
+> **Path requirement**: both the source tree and `CARGO_TARGET_DIR` must live on a pure-ASCII path. If the path contains non-ASCII characters (e.g. Chinese), cargo normalizes it back to the real path and the linker (ld.exe) fails to find rlib artifacts. Place the repository on an ASCII path, or copy it to one for building (sync `public/` and `dist/` completely — missing images break the UI).
+
 For build notes and pitfalls, see [PLAN-v1.0.3-新版解题页面适配.md](./PLAN-v1.0.3-新版解题页面适配.md) (Chinese).
 
 ## FAQ

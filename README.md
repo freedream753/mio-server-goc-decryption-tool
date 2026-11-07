@@ -93,6 +93,8 @@ pnpm install
 pnpm tauri build
 ```
 
+> **注意路径**：源码与 `CARGO_TARGET_DIR` 所在路径必须为纯 ASCII 字符。路径含中文时（如本机 E 盘目录），cargo 会将路径规范化回真实中文路径，导致链接器 ld.exe 找不到 rlib 而构建失败——建议把仓库放在纯 ASCII 路径，或复制一份到 ASCII 路径（public/ 与 dist/ 需完整同步，漏拷图片会破图）后再构建。
+
 构建细节与踩坑记录见 [PLAN-v1.0.3-新版解题页面适配.md](./PLAN-v1.0.3-新版解题页面适配.md)。
 
 ## 常见问题
