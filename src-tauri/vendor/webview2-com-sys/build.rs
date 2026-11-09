@@ -344,10 +344,12 @@ mod webview2_link {
         println!(
             "cargo:rustc-link-lib=static=WebView2LoaderStatic"
         );
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         println!(
             "cargo:rustc-link-lib=static=webview2_msvc_shim_{}",
             target_arch
         );
+        }
 
         Ok(())
     }
