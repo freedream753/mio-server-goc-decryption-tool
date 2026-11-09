@@ -135,15 +135,6 @@
                 "success": "سجل الاختصار بنجاح",
                 "set_hotkey": "اضغط لاختيار مفتاح اختصار"
             },
-            "recognize": {
-                "title": "إعدادات التعرف",
-                "language": "التعرف على اللغة",
-                "delete_newline": "احذف السطر الجديد تلقائيًا",
-                "auto_copy": "نسخ تلقائي",
-                "close_on_blur": "أغلق النافذة عند فقدان التركيز",
-                "hide_window": "اخف نافذة التعرف",
-                "label": "التعرف"
-            },
             "backup": {
                 "username": "اسم المستخدم",
                 "password": "كلمة السر",
@@ -195,13 +186,6 @@
             "downloading": "تنزيل…",
             "installing": "تثبيت…",
             "installed": "اكتمل التثبيت، أعد تشغيل التطبيق لتصبح التغييرات سارية المفعول"
-        },
-        "recognize": {
-            "delete_space": "احذف المسافة",
-            "copy_text": "انسخ",
-            "delete_newline": "احذف السطر الجديد",
-            "copy_img": "انسخ الصورة",
-            "translate": "ترجمة"
         },
         "translate": {
             "delete_newline": "احذف السطر الجديد",

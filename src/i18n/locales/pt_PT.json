@@ -140,15 +140,6 @@
                 "logout": "Sair",
                 "login_success": "Sucesso de Login"
             },
-            "recognize": {
-                "delete_newline": "Apagar Nova Linha Automaticamente",
-                "language": "Idioma de Reconhecimento",
-                "close_on_blur": "Fechar no Desfoque",
-                "title": "Configurações de Reconhecimento",
-                "label": "Reconhecimento",
-                "hide_window": "Ocultar Janela de Reconhecimento",
-                "auto_copy": "Copiar Automaticamente"
-            },
             "hotkey": {
                 "ocr_translate": "Tradução de Imagem",
                 "success": "Atalho registado com sucesso",
@@ -201,14 +192,6 @@
             "cancel": "Cancelar",
             "title": "Procurar Atualização",
             "installing": "A Instalar…"
-        },
-        "recognize": {
-            "translate": "Traduzir",
-            "delete_newline": "Apagar Quebra de Linha",
-            "recognize": "Reconhecimento",
-            "copy_text": "Copiar",
-            "delete_space": "Apagar Espaço",
-            "copy_img": "Copiar imagem"
         }
     }
 }

@@ -144,15 +144,6 @@
                 "login_success": "Connexion réussie",
                 "aliyun": "Aliyun Drive"
             },
-            "recognize": {
-                "delete_newline": "Suppression automatique des retours à la ligne",
-                "language": "Langue de reconnaissance",
-                "close_on_blur": "Fermer la fenêtre lorsque le focus est perdu",
-                "title": "Paramètres de reconnaissance",
-                "label": "Reconnaissance",
-                "hide_window": "Masquer la fenêtre de reconnaissance",
-                "auto_copy": "Copie automatique"
-            },
             "hotkey": {
                 "ocr_translate": "Traduction de capture d'écran",
                 "success": "Le raccourci a bien été enregistré",
@@ -205,14 +196,6 @@
             "cancel": "Annuler",
             "title": "Vérifier les mises à jour",
             "installing": "Installation…"
-        },
-        "recognize": {
-            "translate": "Traduire",
-            "delete_newline": "Supprimer le retour à la ligne",
-            "recognize": "Reconnaissance",
-            "copy_text": "Copier",
-            "copy_img": "Copier l'image",
-            "delete_space": "Supprimer l'espace"
         }
     }
 }

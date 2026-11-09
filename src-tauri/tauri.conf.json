@@ -8,7 +8,7 @@
     },
     "package": {
         "productName": "GOC解题妙妙小工具",
-        "version": "1.0.4"
+        "version": "1.1.0"
     },
     "tauri": {
         "allowlist": {
@@ -60,7 +60,7 @@
             "copyright": "GPLv3",
             "targets": "all",
             "identifier": "com.goc.solver",
-            "longDescription": "OCR 识别英文字母并按凯撒密码位移3解密",
+            "longDescription": "截图自动识别四位符文密码与反馈色，给出下一步推荐",
             "shortDescription": "GOC解题妙妙小工具",
             "externalBin": [],
             "resources": [],

@@ -1,4 +1,4 @@
-/* 解题结果窗口：深色高对比、单行结果、不透明背景（覆盖在游戏画面上），紧凑布局 */
+/* 符文结果窗口：420 宽、不透明深色高对比（覆盖在游戏画面上），高度自适应不假设精确值 */
 html,
 body,
 #root {
@@ -13,19 +13,26 @@ body,
 .result-container {
     display: flex;
     flex-direction: column;
+    gap: 6px;
     height: 100%;
+    width: 100%;
+    /* 结果窗口按宽 420 设计；窗口尺寸未按契约调整时也不至于被拉散 */
+    max-width: 420px;
+    margin: 0 auto;
     box-sizing: border-box;
     background: rgba(2, 8, 24, 0.96);
     border: 1px solid #2d6799;
     border-radius: 8px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
     padding: 6px 8px 8px;
+    overflow: hidden;
     user-select: none;
     color: #d8e6ff;
     font-size: 13px;
 }
 
 .result-header {
+    flex: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -40,7 +47,7 @@ body,
     background: rgba(78, 161, 255, 0.1);
 }
 
-/* 明显的拖拽指示框：grip 图标 + 虚线边框，纯指示作用 */
+/* 拖拽指示框：grip 图标 + 虚线边框，纯指示作用 */
 .result-grip {
     flex: none;
     display: inline-flex;
@@ -57,19 +64,25 @@ body,
     cursor: move;
 }
 
-/* OCR 框选按钮：四角方框标志，拉起 v1.0.1 手动框选识别管线（先隐藏本窗口） */
+/* 框选识别按钮：四角方框标志 + 文字，先隐藏本窗口再拉起手动框选管线 */
 .result-ocr {
     flex: none;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 18px;
+    gap: 3px;
+    padding: 0 4px;
     height: 16px;
+    font-size: 11px;
+    line-height: 1;
     color: #4ea1ff;
     background: rgba(78, 161, 255, 0.14);
     border: 1px solid rgba(78, 161, 255, 0.45);
     border-radius: 4px;
     cursor: pointer;
+}
+
+.result-ocr-text {
+    font-size: 10.5px;
 }
 
 .result-ocr:hover {
@@ -86,6 +99,7 @@ body,
     font-weight: 700;
     font-size: 12px;
     color: #4ea1ff;
+    white-space: nowrap;
 }
 
 .result-countdown {
@@ -95,6 +109,7 @@ body,
 }
 
 .result-close {
+    flex: none;
     font-size: 12px;
     line-height: 1;
     color: #6f8bb5;
@@ -108,185 +123,252 @@ body,
     background: rgba(255, 255, 255, 0.12);
 }
 
-.result-rows {
-    flex: 1;
+/* 四个符文位：符文选择 + 三色反馈按钮 */
+.result-slots {
+    flex: none;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.result-slot {
     display: flex;
     flex-direction: column;
-    justify-content: space-evenly;
-    min-height: 0;
+    align-items: stretch;
+    gap: 4px;
+    padding: 4px 4px 5px;
+    background: #182a44;
+    border: 1px solid rgba(78, 161, 255, 0.25);
+    border-radius: 6px;
 }
 
-.result-empty {
+/* 待确认：醒目琥珀色描边，提示人工补齐 */
+.result-slot.is-pending {
+    border-color: rgba(255, 193, 102, 0.8);
+    background: rgba(63, 45, 18, 0.55);
+}
+
+.result-slot-index {
+    font-size: 10px;
+    line-height: 1;
     text-align: center;
-    color: #40506b;
-    font-size: 12px;
+    color: #7f9ab8;
 }
 
-.result-row {
-    position: relative;
+.result-slot.is-pending .result-slot-index {
+    color: #ffc966;
+}
+
+.result-select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 1px 0;
+    font-size: 16px;
+    line-height: 1.4;
+    text-align: center;
+    text-align-last: center;
+    color: #eaf2ff;
+    background: #213a59;
+    border: 1px solid rgba(78, 161, 255, 0.45);
+    border-radius: 4px;
+    outline: none;
+}
+
+.result-select:focus {
+    border-color: #7dd3fc;
+}
+
+.result-slot.is-pending .result-select {
+    color: #ffc966;
+    border-color: rgba(255, 193, 102, 0.75);
+}
+
+.result-colors {
+    display: flex;
+    gap: 3px;
+}
+
+/* 未判色：虚线框提示该位反馈色缺失 */
+.result-colors.is-unset {
+    border: 1px dashed rgba(255, 193, 102, 0.55);
+    border-radius: 4px;
+    padding: 1px;
+}
+
+.result-color {
+    flex: 1;
+    min-width: 0;
+    padding: 1px 0;
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.5;
+    background: #213a59;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    opacity: 0.6;
+    cursor: pointer;
+}
+
+.result-color:hover {
+    opacity: 0.9;
+}
+
+.result-color.c0 {
+    color: #ff987f;
+}
+
+.result-color.c1 {
+    color: #f9d96e;
+}
+
+.result-color.c2 {
+    color: #7ee0b0;
+}
+
+.result-color.selected {
+    opacity: 1;
+    border-color: currentColor;
+    background: #304c6b;
+    box-shadow: 0 0 0 1px currentColor;
+}
+
+/* 状态区：剩余机会 / 候选数 / 判色规则 / 中文提示 */
+.result-status {
+    flex: none;
+    padding: 4px 6px 5px;
+    background: #183452;
+    border: 1px solid rgba(57, 126, 172, 0.6);
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.status-line {
     display: flex;
     align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    color: #8fb2d6;
+}
+
+.status-line b {
+    color: #7dd3fc;
+}
+
+.status-mode {
+    margin-left: auto;
+    padding: 0 4px;
+    color: #7f9ab8;
+    border: 1px solid rgba(127, 154, 184, 0.4);
+    border-radius: 3px;
+}
+
+.result-status p {
+    margin: 2px 0 0;
+    color: #edf6ff;
+}
+
+.result-status p.is-warn {
+    color: #ffb27f;
+}
+
+.result-status p.is-solved {
+    color: #6ee7a0;
+    font-weight: 700;
+}
+
+.status-hint {
+    margin-top: 2px;
+    font-size: 10.5px;
+    color: #7f9ab8;
+}
+
+/* 推荐提交：整行可点即复制 */
+.result-recommend {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 6px;
-    padding: 3px 6px;
-    border-radius: 5px;
+    padding: 5px 8px;
+    background: rgba(45, 103, 153, 0.25);
+    border: 1px solid rgba(78, 161, 255, 0.45);
+    border-radius: 6px;
     cursor: pointer;
     transition: background 0.12s;
 }
 
-.result-row:hover {
-    background: rgba(78, 161, 255, 0.12);
+.result-recommend:hover {
+    background: rgba(78, 161, 255, 0.3);
 }
 
-.result-row.is-error {
+.result-recommend.is-idle {
     cursor: default;
-    color: #7a86a0;
 }
 
-.row-cipher {
-    font-family: Consolas, monospace;
-    font-weight: 700;
+.result-recommend.is-solved {
+    border-color: rgba(110, 231, 160, 0.6);
+}
+
+.recommend-text {
     font-size: 14px;
+    font-weight: 700;
     letter-spacing: 0.5px;
     color: #eaf2ff;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.row-label {
+.result-recommend.is-idle .recommend-text {
+    color: #6f8bb5;
+}
+
+.result-recommend.is-solved .recommend-text {
+    color: #6ee7a0;
+}
+
+.recommend-copy {
+    flex: none;
+    padding: 1px 6px;
     font-size: 11px;
-    color: #7fb2e8;
-    background: rgba(45, 103, 153, 0.25);
-    border-radius: 3px;
-    padding: 1px 5px;
-    white-space: nowrap;
-}
-
-/* 手动位移方形按键组：[-] ±N [+]，标签与词表都未命中时兜底 */
-.shift-ctl {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    flex: none;
-}
-
-.shift-btn {
-    width: 18px;
-    height: 18px;
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    font-family: Consolas, monospace;
-    font-size: 13px;
-    line-height: 1;
-    color: #4ea1ff;
-    background: rgba(45, 103, 153, 0.25);
-    border: 1px solid rgba(78, 161, 255, 0.45);
+    color: #7dd3fc;
+    border: 1px solid rgba(125, 211, 252, 0.5);
     border-radius: 4px;
+}
+
+/* 操作按钮：贴底，窗口高度变化时不影响上方内容 */
+.result-actions {
+    flex: none;
+    display: flex;
+    gap: 6px;
+    margin-top: auto;
+}
+
+.result-actions button {
+    flex: 1;
+    padding: 5px 0;
+    font-family: inherit;
+    font-size: 12px;
+    color: #edf6ff;
+    background: #213a59;
+    border: 1px solid rgba(78, 161, 255, 0.5);
+    border-radius: 5px;
     cursor: pointer;
 }
 
-.shift-btn:hover {
+.result-actions button:hover:not(:disabled) {
     background: rgba(78, 161, 255, 0.35);
-    color: #ffffff;
 }
 
-.shift-btn:active {
-    background: rgba(78, 161, 255, 0.55);
+.result-actions button:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
-.shift-val {
-    min-width: 24px;
-    text-align: center;
-    font-family: Consolas, monospace;
-    font-size: 11px;
-    color: #5b7ea8;
-}
-
-.shift-val.has {
-    color: #ffd166;
+.result-actions .act-record:not(:disabled) {
+    background: #087ba6;
+    border-color: #087ba6;
     font-weight: 700;
-}
-
-/* 密文编辑框：密文未识别留空位 / 双击已有密文编辑 */
-.cipher-input {
-    width: 88px;
-    box-sizing: border-box;
-    padding: 1px 4px;
-    font-family: Consolas, monospace;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    color: #eaf2ff;
-    background: rgba(45, 103, 153, 0.25);
-    border: 1px solid rgba(78, 161, 255, 0.45);
-    border-radius: 3px;
-    outline: none;
-    user-select: text;
-}
-
-.cipher-input:focus {
-    border-color: #4ea1ff;
-    background: rgba(45, 103, 153, 0.45);
-}
-
-.cipher-input::placeholder {
-    color: #5b7ea8;
-    font-weight: 400;
-}
-
-.row-arrow {
-    color: #4a6080;
-}
-
-.row-answer {
-    font-family: Consolas, monospace;
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: 0.5px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.row-answer.st-ok {
-    color: #6ee7a0;
-}
-
-/* 词表命中：官方对应表反查定案 */
-.row-answer.st-table {
-    color: #7fd7ff;
-}
-
-.row-answer.st-learned {
-    color: #ffd166;
-}
-
-.row-answer.st-unknown {
-    color: #eaf2ff;
-}
-
-.row-status {
-    font-style: normal;
-    font-size: 11px;
-    color: #5b7ea8;
-}
-
-/* 窄窗口下绝对定位悬浮展示，不挤压答案内容 */
-.row-copied {
-    position: absolute;
-    right: 2px;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 1px 5px;
-    font-size: 10px;
-    color: #6ee7a0;
-    background: rgba(2, 8, 24, 0.95);
-    border: 1px solid rgba(110, 231, 160, 0.4);
-    border-radius: 3px;
-    white-space: nowrap;
 }

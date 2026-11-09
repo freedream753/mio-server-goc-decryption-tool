@@ -1,5 +1,5 @@
 use crate::config::{get, set};
-use crate::solver::solver_recognize;
+use crate::runes::rune_scan;
 use crate::APP;
 use log::{error, info, warn};
 use tauri::{AppHandle, GlobalShortcutManager};
@@ -44,9 +44,9 @@ where
 pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
     let app_handle = APP.get().unwrap();
     match shortcut {
-        "hotkey_ocr_recognize" => register(app_handle, "hotkey_ocr_recognize", solver_recognize, "")?,
+        "hotkey_ocr_recognize" => register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?,
         "all" => {
-            register(app_handle, "hotkey_ocr_recognize", solver_recognize, "")?;
+            register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?;
         }
         _ => {}
     }
@@ -58,7 +58,7 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
     let app_handle = APP.get().unwrap();
     match name {
         "hotkey_ocr_recognize" => {
-            register(app_handle, "hotkey_ocr_recognize", solver_recognize, shortcut)?
+            register(app_handle, "hotkey_ocr_recognize", rune_scan, shortcut)?
         }
         _ => {}
     }
@@ -85,7 +85,7 @@ pub fn update_shortcut(name: &str, shortcut: String) -> Result<(), String> {
     if !old.is_empty() {
         let _ = manager.unregister(&old);
     }
-    match manager.register(&new_key, solver_recognize) {
+    match manager.register(&new_key, rune_scan) {
         Ok(()) => {
             set(name, new_key.clone());
             info!("Hotkey updated: {} -> {} for {}", old, new_key, name);
@@ -94,7 +94,7 @@ pub fn update_shortcut(name: &str, shortcut: String) -> Result<(), String> {
         Err(e) => {
             // 回滚：重新注册旧键，保证本会话热键不丢失
             if !old.is_empty() {
-                if let Err(re) = manager.register(&old, solver_recognize) {
+                if let Err(re) = manager.register(&old, rune_scan) {
                     error!("Hotkey rollback failed for {}: {:?}", old, re);
                 }
             }

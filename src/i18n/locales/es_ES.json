@@ -118,12 +118,6 @@
                 "source_language": "Idioma de origen",
                 "dynamic_translate": "Traduccion dinámica"
             },
-            "recognize": {
-                "language": "Idioma de reconocimiento",
-                "hide_window": "Ocultar ventana de reconocimiento",
-                "title": "Ajustes de reconocimiento",
-                "close_on_blur": "Cerra ventana al perder el foco"
-            },
             "hotkey": {
                 "is_register": "El atajo de teclado ya está registrado",
                 "success": "Registro de atajo de teclado con éxito",

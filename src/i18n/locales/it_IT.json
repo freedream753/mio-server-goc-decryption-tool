@@ -135,15 +135,6 @@
                 "title": "Impostazioni Generali",
                 "app_fallback_font": "Font di riserva"
             },
-            "recognize": {
-                "delete_newline": "Elimina automaticamente la nuova riga",
-                "language": "Riconosci la lingua",
-                "close_on_blur": "Chiudi su sfocatura",
-                "title": "Impostazioni di riconoscimento",
-                "label": "Riconosci",
-                "hide_window": "Nascondi la finestra di riconoscimento",
-                "auto_copy": "Copia automaticamente"
-            },
             "hotkey": {
                 "ocr_translate": "Traduzione di schermate",
                 "success": "Registrazione dei tasti di scelta rapida riuscita",
@@ -195,14 +186,6 @@
             "cancel": "Annulla",
             "title": "Controlla aggiornamento",
             "installing": "Installazione in corso…"
-        },
-        "recognize": {
-            "translate": "Traduci",
-            "delete_newline": "Elimina nuova riga",
-            "recognize": "Riconoscere",
-            "copy_text": "Copia",
-            "delete_space": "Elimina spazio",
-            "copy_img": "Copia immagine"
         }
     }
 }

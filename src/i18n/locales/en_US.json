@@ -124,15 +124,6 @@
                 "yandex": "Yandex",
                 "local": "Local"
             },
-            "recognize": {
-                "label": "Recognize",
-                "title": "Recognition Settings",
-                "language": "Recognition Language",
-                "delete_newline": "Auto Delete Newline",
-                "auto_copy": "Auto Copy",
-                "close_on_blur": "Close window when focus lost",
-                "hide_window": "Hide Recognition Window"
-            },
             "hotkey": {
                 "label": "Hotkey",
                 "title": "Hotkey Settings",
@@ -147,10 +138,6 @@
             "history": {
                 "label": "History",
                 "title": "History"
-            },
-            "corrections": {
-                "label": "Answer Bank",
-                "title": "Answer Bank"
             },
             "backup": {
                 "label": "Backup",
@@ -176,7 +163,7 @@
                 "label": "About",
                 "title": "About",
                 "name": "GOC Solver",
-                "desc": "This app is a modified version of the open-source project pot-desktop, focused on a single pipeline: screenshot → English OCR → Caesar cipher decryption → clipboard.",
+                "desc": "This app is a modified version of the open-source project pot-desktop, focused on a single pipeline: hotkey → full-screen capture → recognize the four runes and their feedback colors → record the round and recommend the next guess.",
                 "license_title": "License (GPL-3.0)",
                 "license_desc": "The upstream project pot-desktop is licensed under the GNU General Public License v3.0 (GPL-3.0).\nThis modified version is therefore also released under GPL-3.0: you are free to use, study, modify and redistribute it, but any distribution must keep the same license, preserve copyright and license notices, and provide the complete modified source code.",
                 "links_title": "Links",
@@ -202,17 +189,6 @@
             "retry": "Try again",
             "delete_newline": "Delete Newline",
             "translate_back": "Translation back to the original"
-        },
-        "recognize": {
-            "recognize": "Recognize",
-            "copy_img": "Copy Image",
-            "copy_text": "Copy",
-            "delete_newline": "Delete Newline",
-            "delete_space": "Delete Space",
-            "copy_success": "Recognized text copied to clipboard",
-            "copy_failed": "Copy to clipboard failed",
-            "decrypt_error": "Screenshot decrypt failed",
-            "no_image": "No screenshot content found"
         }
     }
 }

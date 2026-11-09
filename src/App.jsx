@@ -6,8 +6,8 @@ import React, { useEffect } from 'react';
 import { useTheme } from 'next-themes';
 
 import Screenshot from './window/Screenshot';
-import Recognize from './window/Recognize';
 import Result from './window/Result';
+import Runes from './window/Runes';
 import { store } from './utils/store';
 import Config from './window/Config';
 import { useConfig } from './hooks';
@@ -16,9 +16,9 @@ import './i18n';
 
 const windowMap = {
     screenshot: <Screenshot />,
-    recognize: <Recognize />,
     config: <Config />,
     result: <Result />,
+    runes: <Runes />,
 };
 
 export default function App() {
@@ -45,6 +45,10 @@ export default function App() {
                 e.preventDefault();
             }
             if (e.key === 'Escape') {
+                if (appWindow.label === 'runes') {
+                    await appWindow.hide();
+                    return;
+                }
                 // 结果窗口只隐藏不销毁（复用 + Rust 兜底隐藏），Escape 关闭会把
                 // 整窗销毁导致三卡全部消失（密文编辑态按 Esc 取消编辑即触发）
                 if (appWindow.label !== 'result') {

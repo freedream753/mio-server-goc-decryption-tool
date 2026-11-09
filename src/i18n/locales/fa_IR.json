@@ -102,12 +102,6 @@
         "translate": {
             "delete_newline": "پاک کردن خط جدید",
             "retry": "تلاش مجدد"
-        },
-        "recognize": {
-            "delete_newline": "پاک کردن خط جدید",
-            "copy_text": "کپی",
-            "delete_space": "پاک کردن فاصله",
-            "copy_img": "کپی عکس"
         }
     }
 }

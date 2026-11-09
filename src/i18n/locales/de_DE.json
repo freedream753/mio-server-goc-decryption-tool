@@ -124,15 +124,6 @@
                 "yandex": "Yandex",
                 "local": "Lokal"
             },
-            "recognize": {
-                "label": "Texterkennung",
-                "title": "Texterkennung",
-                "language": "Erkennungssprache",
-                "delete_newline": "Automatisches Löschen von Zeilenumbrüchen",
-                "auto_copy": "Automatisch kopieren",
-                "close_on_blur": "Fenster beim Verlust des Fokus schließen",
-                "hide_window": "Erkennungsfenster ausblenden"
-            },
             "hotkey": {
                 "label": "Hotkey",
                 "title": "Tastenkombinationen",
@@ -205,14 +196,6 @@
             "retry": "Erneut versuchen",
             "delete_newline": "Zeilenumbruch löschen",
             "translate_back": "In Ursprungssprache übersetzen"
-        },
-        "recognize": {
-            "recognize": "Erneut erkennen",
-            "translate": "Übersetzen",
-            "copy_img": "Bild kopieren",
-            "copy_text": "Kopieren",
-            "delete_newline": "Zeilenumbruch löschen",
-            "delete_space": "Leerzeichen löschen"
         }
     }
 }

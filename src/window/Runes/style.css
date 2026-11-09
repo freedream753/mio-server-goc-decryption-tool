@@ -1,0 +1,26 @@
+.runes { height: 100vh; display: flex; flex-direction: column; background: #101c30; color: #e5eefc; font: 14px/1.6 sans-serif; }
+.rune-header { padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; background: #193451; cursor: move; }
+.rune-body { padding: 16px 20px; overflow-y: auto; flex: 1; min-height: 0; }
+.runes p { margin: 8px 0 14px; color: #b6c9e2; }
+.runes button, .runes select { border: 1px solid #527198; border-radius: 6px; background: #213a59; color: #edf6ff; padding: 5px 10px; cursor: pointer; }
+.runes button:disabled, .runes select:disabled { opacity: .45; cursor: default; }
+.runes button:focus-visible, .runes select:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
+.rune-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rune-rule, .rune-spent, .rune-note { font-size: 12px; }
+.rune-status { background: #183452; border: 1px solid #397eac; border-radius: 8px; padding: 12px; margin: 16px 0; }
+.rune-status b { color: #7dd3fc; }
+.rune-status p { margin-bottom: 0; color: #edf6ff; }
+.runes h2 { font-weight: 600; margin: 14px 0 10px; }
+.rune-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.rune-slot { background: #182a44; padding: 10px 6px; border-radius: 8px; text-align: center; }
+.rune-slot label { display: block; font-size: 12px; color: #b6c9e2; }
+.rune-slot select { display: block; font-size: 24px; margin: 6px auto 10px; width: 90%; }
+.rune-colors { display: flex; gap: 3px; justify-content: center; }
+.runes .rune-color { padding: 4px 7px; opacity: .65; border-color: transparent; }
+.runes .c0 { color: #ff987f; }
+.runes .c1 { color: #f9d96e; }
+.runes .c2 { color: #7ee0b0; }
+.runes .rune-color.selected { opacity: 1; border-color: currentColor; background: #304c6b; box-shadow: 0 0 0 1px currentColor; }
+.runes .rune-submit { width: 100%; margin-top: 16px; background: #087ba6; font-weight: 600; padding: 10px; }
+.rune-history li { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #304664; }
+.rune-history b { margin-left: 12px; }
