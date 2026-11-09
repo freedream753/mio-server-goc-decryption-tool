@@ -166,14 +166,6 @@
                 "qq_group": "קבוצת QQ",
                 "issue": "גיליון"
             },
-            "recognize": {
-                "label": "זהה",
-                "title": "הגדרות זיהוי",
-                "language": "שפת זיהוי",
-                "auto_copy": "העתקה אוטומטית",
-                "hide_window": "הסתר חלון זיהוי",
-                "close_on_blur": "סגור את החלון כאשר המיקוד אינו פעיל"
-            },
             "history": {
                 "label": "היסטוריה",
                 "title": "היסטוריה"
@@ -196,12 +188,6 @@
             "translate_back": "תרגום חזרה למקור",
             "copy": "העתק",
             "retry": "נסה שוב"
-        },
-        "recognize": {
-            "translate": "תרגם",
-            "copy_img": "העתק תמונה",
-            "recognize": "זהה",
-            "copy_text": "העתק"
         }
     }
 }

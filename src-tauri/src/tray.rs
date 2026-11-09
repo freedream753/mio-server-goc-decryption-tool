@@ -1,5 +1,5 @@
 use crate::config::{get, set};
-use crate::solver::solver_recognize;
+use crate::runes::rune_scan;
 use crate::window::config_window;
 use log::info;
 use tauri::CustomMenuItem;
@@ -43,6 +43,7 @@ pub fn tray_event_handler<'a>(app: &'a AppHandle, event: SystemTrayEvent) {
         SystemTrayEvent::LeftClick { .. } => on_tray_click(),
         SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
             "ocr_recognize" => on_ocr_recognize_click(),
+            "runes" => crate::window::rune_window(),
             "config" => on_config_click(),
             "view_log" => on_view_log_click(app),
             "restart" => on_restart_click(app),
@@ -64,14 +65,14 @@ fn on_tray_click() {
     };
     match event.as_str() {
         "config" => config_window(),
-        "ocr_recognize" => solver_recognize(),
+        "ocr_recognize" => rune_scan(),
         "disable" => {}
         _ => config_window(),
     }
 }
 
 fn on_ocr_recognize_click() {
-    solver_recognize();
+    rune_scan();
 }
 
 fn on_config_click() {
@@ -100,13 +101,14 @@ fn on_quit_click(app: &AppHandle) {
 }
 
 fn tray_menu_en() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "Screenshot Decrypt (OCR + Caesar)");
+    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "Screenshot -> Rune Identify");
     let config = CustomMenuItem::new("config", "Config");
     let view_log = CustomMenuItem::new("view_log", "View Log");
     let restart = CustomMenuItem::new("restart", "Restart");
     let quit = CustomMenuItem::new("quit", "Quit");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
+        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
         
@@ -117,13 +119,14 @@ fn tray_menu_en() -> tauri::SystemTrayMenu {
 }
 
 fn tray_menu_zh_cn() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截图解密 (OCR+凯撒)");
+    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截图识别符文");
     let config = CustomMenuItem::new("config", "偏好设置");
     let restart = CustomMenuItem::new("restart", "重启应用");
     let view_log = CustomMenuItem::new("view_log", "查看日志");
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
+        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
         
@@ -134,13 +137,14 @@ fn tray_menu_zh_cn() -> tauri::SystemTrayMenu {
 }
 
 fn tray_menu_zh_tw() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截圖解密 (OCR+凱撒)");
+    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截圖識別符文");
     let config = CustomMenuItem::new("config", "偏好設定");
     let restart = CustomMenuItem::new("restart", "重啓程式");
     let view_log = CustomMenuItem::new("view_log", "查看日誌");
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
+        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
         

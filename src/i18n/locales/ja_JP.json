@@ -49,11 +49,6 @@
                 "label": "ホットキー",
                 "title": "ホットキー設定"
             },
-            "recognize": {
-                "title": "認識設定",
-                "label": "テキスト認識",
-                "delete_newline": "改行の自動削除"
-            },
             "history": {
                 "label": "履歴",
                 "title": "履歴"
@@ -94,13 +89,6 @@
             "translate": "翻訳",
             "delete_newline": "改行を削除",
             "copy": "コピー"
-        },
-        "recognize": {
-            "translate": "翻訳",
-            "delete_newline": "改行を削除",
-            "copy_text": "コピー",
-            "delete_space": "空白を削除",
-            "copy_img": "画像をコピー"
         }
     }
 }

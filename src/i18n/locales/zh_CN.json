@@ -124,15 +124,6 @@
                 "yandex": "Yandex",
                 "local": "本地"
             },
-            "recognize": {
-                "label": "文字识别",
-                "title": "文字识别",
-                "language": "识别语言",
-                "delete_newline": "自动删除换行",
-                "auto_copy": "自动复制",
-                "close_on_blur": "失去焦点时关闭窗口",
-                "hide_window": "隐藏识别窗口"
-            },
             "hotkey": {
                 "label": "热键设置",
                 "title": "热键设置",
@@ -147,10 +138,6 @@
             "history": {
                 "label": "历史记录",
                 "title": "历史记录"
-            },
-            "corrections": {
-                "label": "自学习词库",
-                "title": "自学习词库"
             },
             "backup": {
                 "label": "备份设置",
@@ -176,7 +163,7 @@
                 "label": "关于项目",
                 "title": "关于项目",
                 "name": "GOC解题妙妙小工具",
-                "desc": "本工具基于开源项目 pot-desktop 修改而来，聚焦“截图 → OCR 识别英文 → 凯撒密码解密 → 写入剪贴板”这一条固定链路。",
+                "desc": "本工具基于开源项目 pot-desktop 修改而来，聚焦“快捷键截图 → 自动识别 4 个符文与反馈色 → 写入本局历史并给出下一步推荐”这一条固定链路。",
                 "license_title": "开源协议（GPL-3.0）",
                 "license_desc": "原项目 pot-desktop 采用 GNU General Public License v3.0（GPL-3.0）协议开源。\n因此本修改版同样以 GPL-3.0 协议发布：你可以自由使用、学习、修改和分发本软件，但分发时必须继续采用 GPL-3.0 协议、保留原版权与许可声明，并公开完整的修改后源代码。",
                 "links_title": "相关链接",
@@ -202,17 +189,6 @@
             "retry": "重试",
             "delete_newline": "删除换行",
             "translate_back": "翻译回原文"
-        },
-        "recognize": {
-            "recognize": "重新识别",
-            "copy_img": "复制图片",
-            "copy_text": "复制",
-            "delete_newline": "删除换行",
-            "delete_space": "删除空格",
-            "copy_success": "识别结果已复制到剪贴板",
-            "copy_failed": "复制到剪贴板失败",
-            "decrypt_error": "截图解密失败",
-            "no_image": "未获取到截图内容"
         }
     }
 }

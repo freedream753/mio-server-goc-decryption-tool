@@ -14,13 +14,11 @@
                 "font_size": {}
             },
             "backup": {},
-            "recognize": {},
             "hotkey": {},
             "about": {},
             "history": {}
         },
         "translate": {},
-        "updater": {},
-        "recognize": {}
+        "updater": {}
     }
 }

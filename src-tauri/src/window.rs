@@ -8,16 +8,34 @@ use tauri::Window;
 use tauri::WindowBuilder;
 use window_shadows::set_shadow;
 
-// 最新一次自动解题结果（JSON：{cards, show}），结果窗口前端挂载后经 get_solve_result 拉取
-pub static SOLVE_RESULT: Mutex<Option<serde_json::Value>> = Mutex::new(None);
-
 // 结果窗口自动隐藏截止时刻：WebView2 对非激活窗口节流 timer，前端倒计时可能停摆，
 // 由 Rust 侧兜底到期隐藏
 static RESULT_DEADLINE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 
-// 结果窗口几何（逻辑尺寸）：按内容实际宽度收紧（此前 400 宽右侧大片空白）
-const RESULT_WINDOW_W: f64 = 320.0;
-const RESULT_WINDOW_H: f64 = 140.0;
+// 结果窗口几何（逻辑尺寸）：符文结果界面需要放下 4 个符文格 + 颜色 + 按钮
+const RESULT_WINDOW_W: f64 = 420.0;
+const RESULT_WINDOW_H: f64 = 360.0;
+
+#[tauri::command]
+pub fn rune_window() {
+    let (window, exists) = build_window("runes", "GOC · 四位符文解密");
+    if !exists {
+        let _ = window.set_size(tauri::LogicalSize::new(660.0, 720.0));
+        let _ = window.set_min_size(Some(tauri::LogicalSize::new(580.0, 480.0)));
+        let _ = window.center();
+        let _ = window.set_always_on_top(true);
+        let keep = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 隐藏而不销毁，保留本局状态。
+                api.prevent_close();
+                let _ = keep.hide();
+            }
+        });
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
+}
 
 // Get daemon window instance
 fn get_daemon_window() -> Window {
@@ -263,17 +281,7 @@ pub fn config_window() {
     });
 }
 
-// 隐藏的 OCR 解密 worker 窗口：不显示、不抢焦点，仅在前端执行 OCR->凯撒解密->剪贴板+通知
-pub fn recognize_window() {
-    let (window, exists) = build_window("recognize", "Recognize");
-    if exists {
-        let _ = window.emit("new_image", "");
-        return;
-    }
-    let _ = window.emit("new_image", "");
-}
-
-// 全屏截图框选覆盖窗（v1.0.1 手动框选管线）：展示全屏截图，用户拖拽选出识别区域
+// 全屏截图框选覆盖窗（手动框选降级路径）：展示全屏截图，用户拖拽选出识别区域
 fn screenshot_window() -> Window {
     let (window, exists) = build_window("screenshot", "Screenshot");
 
@@ -281,9 +289,9 @@ fn screenshot_window() -> Window {
     // tauri v1 的 Window::listen 只能收到 window 标签与自身 label 相同的 trigger
     // （JS 全局 emit 会以「发起窗口的 label」触发 Rust 监听器），因此监听必须挂在
     // 截图窗口自己身上；窗口每次新建时重新注册，复用时沿用已有监听，避免监听丢失。
-    // 识别走 v1.0.3 自动管线（此处只复用 v1.0.1 的框选交互）
+    // 选区图交给符文识别管线的框选降级入口
     if !exists {
-        let _ = window.listen("success", |_| crate::solver::solver_recognize_manual());
+        let _ = window.listen("success", |_| crate::runes::rune_scan_manual());
     }
 
     let _ = window.set_skip_taskbar(true);
@@ -293,9 +301,8 @@ fn screenshot_window() -> Window {
     window
 }
 
-// 手动框选 OCR（交互复用 v1.0.1）：拉起全屏框选窗 -> 用户选区 -> 选区图接入 v1.0.3
-// 自动管线（WinOCR），结果进结果窗口。供高分辨率/高 DPI 下做题页面过小、
-// 自动管线识别失败的用户自由选择截图区域
+// 手动框选（框选交互沿用 v1.0.1）：拉起全屏框选窗 -> 用户选区 -> 选区图进符文识别
+// 管线。供自动定位失败（高 DPI 缩放、面板被遮挡等）时由用户自由选择截图区域
 pub fn ocr_recognize() {
     let window = screenshot_window();
     // 截图窗口会被复用：其前端 useEffect 只在挂载时执行一次，复用旧窗口不会重新截屏，
@@ -306,9 +313,9 @@ pub fn ocr_recognize() {
     }
 }
 
-// ---------------- 解题结果窗口 ----------------
+// ---------------- 符文识别结果窗口 ----------------
 // 始终置顶 + WS_EX_NOACTIVATE（不抢焦点，不打断游戏按键交互），
-// 数据由 Rust 推送（emit solve_result），展示/复制/倒计时由前端负责。
+// 数据由 Rust 推送（emit rune_scan），展示/纠正/倒计时由前端负责。
 
 // 结果窗口 Win32 扩展样式：NOACTIVATE + TOPMOST
 #[cfg(target_os = "windows")]
@@ -388,8 +395,8 @@ pub fn result_window_notify(payload: serde_json::Value) {
             window
         }
     };
-    if let Err(e) = window.emit("solve_result", payload) {
-        warn!("Emit solve_result failed: {}", e);
+    if let Err(e) = window.emit("rune_scan", payload) {
+        warn!("Emit rune_scan failed: {}", e);
     }
 }
 

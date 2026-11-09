@@ -124,15 +124,6 @@
                     "title": "字型大小"
                 }
             },
-            "recognize": {
-                "label": "文字辨識",
-                "title": "文字辨識設定",
-                "language": "辨識語言",
-                "delete_newline": "自動刪除換行",
-                "auto_copy": "自動複製",
-                "close_on_blur": "失去焦點時關閉視窗",
-                "hide_window": "隱藏辨識視窗"
-            },
             "hotkey": {
                 "label": "快速鍵設定",
                 "title": "快速鍵設定",
@@ -147,10 +138,6 @@
             "history": {
                 "label": "歷史記錄",
                 "title": "歷史記錄"
-            },
-            "corrections": {
-                "label": "自學習詞庫",
-                "title": "自學習詞庫"
             },
             "backup": {
                 "label": "備份設定",
@@ -209,17 +196,6 @@
             "retry": "重試",
             "delete_newline": "刪除換行",
             "translate_back": "翻譯回原文"
-        },
-        "recognize": {
-            "recognize": "辨識",
-            "copy_img": "複製圖片",
-            "copy_text": "複製",
-            "delete_newline": "刪除換行",
-            "delete_space": "刪除空格",
-            "copy_success": "辨識結果已複製到剪貼簿",
-            "copy_failed": "複製到剪貼簿失敗",
-            "decrypt_error": "截圖解密失敗",
-            "no_image": "未取得截圖內容"
         }
     }
 }

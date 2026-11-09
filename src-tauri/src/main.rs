@@ -5,6 +5,7 @@ mod cmd;
 mod config;
 mod error;
 mod hotkey;
+mod runes;
 mod screenshot;
 mod server;
 mod solver;
@@ -131,9 +132,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            reload_store, cut_image, get_base64, log_event, register_shortcut_by_frontend, update_tray, screenshot, font_list,
-            get_solve_result, show_result_window, reset_result_timer, save_correction,
-            get_corrections, del_correction, begin_result_drag, hide_result_window, focus_result_window, get_answer_words, is_custom_words, save_answer_words, reset_answer_words, update_shortcut,
+            reload_store, cut_image, log_event, register_shortcut_by_frontend, update_tray, screenshot, font_list,
+            window::rune_window, get_rune_scan, show_result_window, reset_result_timer,
+            begin_result_drag, hide_result_window, focus_result_window, update_shortcut,
             ocr_recognize
         ])
         .on_system_tray_event(tray_event_handler)

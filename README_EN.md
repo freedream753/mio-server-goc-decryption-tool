@@ -2,9 +2,9 @@
 
 <h1>GOC Solver</h1>
 
-**GMOD-RXSEND-MIO Server 5K Mode · GOC Cipher Terminal Solver**
+**GMOD-RXSEND-MIO Server 5K Mode · GOC Rune Terminal Solver**
 
-Automatically recognizes the three cipher cards on the puzzle page, decrypts them according to each card's "shift forward / backward by N" label, and shows the answers in a topmost window with one-click copy.
+Press `Alt + C` to capture the full screen, automatically recognize the four runes on the game panel and their feedback colors (red / yellow / green), record them into this round's history, and show the next recommended guess in a topmost window.
 
 [![License](https://img.shields.io/badge/LICENSE-GPL--3.0-green.svg?style=for-the-badge)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/freedream753/mio-server-goc-decryption-tool?style=for-the-badge)](../../releases)
@@ -31,30 +31,30 @@ Automatically recognizes the three cipher cards on the puzzle page, decrypts the
 
 ## Features
 
-1. **Fully automatic solving:** One keypress (`Alt + C`) captures the full screen, locates the three cipher cards automatically, and completes recognition → decryption → copy in one go — no manual region selection needed.
+1. **Fully automatic rune recognition:** One keypress (`Alt + C`) captures the full screen, locates the four rune slots of the current guess, recognizes each rune (empty / fire / water / wind / earth / thunder) and each feedback color (red / yellow / green), and records the round automatically — no manual entry.
 
-2. **Offline recognition:** Uses the Windows built-in OCR engine (Windows.Media.Ocr) — zero model downloads, zero network requests. A single portable exe that just works.
+2. **Offline recognition:** Rune locating, border color sampling and glyph recognition all run locally — zero model downloads, zero network requests. A single portable exe that just works.
 
-3. **Filter-immune color detection:** Color decisions are based on relative color ordering (channel differences + cross-color relative order) instead of absolute RGB thresholds, so global color drift caused by NVIDIA Freestyle / in-game brightness filters does not break recognition.
+3. **Filter-immune color detection:** Feedback colors are decided by the relative color order of each rune frame's border instead of absolute RGB thresholds, so global color drift caused by NVIDIA Freestyle / in-game brightness filters does not break recognition.
 
-4. **Focus-stealing-free result window:** The result window is always on top and never steals game focus (WS_EX_NOACTIVATE). Click any answer row to copy it without interrupting your keystrokes in the game.
+4. **Focus-stealing-free result window:** The result window is always on top and never steals game focus (WS_EX_NOACTIVATE). It shows the recognized panel and the next recommended guess, ready to copy with one click without interrupting your keystrokes.
 
-5. **Self-learning corrections:** If a recognition is wrong, edit the answer directly in the result window. Corrections are saved to a local JSON file and preferred in future recognition — fix once, remembered forever.
+5. **Per-slot correction:** If a rune or color is misread, fix it slot by slot in the result window and the recommendation is recomputed; "undo this entry" and "new round" are available as a safety net.
 
-6. **Region-select from the result window:** A box-select button in the result window header (the four-corner icon right of ⠿) lets you drag-select any screen area for recognition — a fallback for high-resolution / high-DPI scenes where automatic locating fails. Small selections are upscaled automatically.
+6. **Manual helper & region-select fallback:** The "Four Runes" window (tray / settings sidebar) stays for switching the color rule, entering history manually and joining mid-round; the box-select button in the result window recognizes a manually dragged screen region when automatic locating fails.
 
 ## How It Works
 
 ```
 Alt + C full-screen capture
     ↓
-Rust pixel pre-filter (luminance channel + card-border geometry) locates the three cards
+Locate the four rune slots of the current guess (panel luminance / frame geometry)
     ↓
-Windows.Media.Ocr reads the "shift forward/backward by N" labels + uppercase ciphers
+Recognize 4 runes (empty / fire / water / wind / earth / thunder) + 4 feedback colors (red / yellow / green)
     ↓
-Decrypt per label semantics (backward N → each letter -N; forward N → each letter +N)
+Deduplicate against the current round, then append one history entry (localStorage key goc-rune-session-v1)
     ↓
-Topmost, non-activating result window: three "cipher → answer" rows, first answer copied by default
+Topmost, non-activating result window: recognized panel + next recommended guess, one-click copy
 ```
 
 ## Download
@@ -63,26 +63,28 @@ Grab the single-file portable exe from the [Releases](../../releases) page:
 
 | File | Architecture |
 |---|---|
-| `GOC-Solver-v1.0.4-x64.exe` | 64-bit Intel / AMD |
-| `GOC-Solver-v1.0.4-x86.exe` | 32-bit x86 |
-| `GOC-Solver-v1.0.4-arm64.exe` | ARM64 |
+| `GOC-Solver-v1.1.0-x64.exe` | 64-bit Intel / AMD |
+| `GOC-Solver-v1.1.0-x86.exe` | 32-bit x86 |
+| `GOC-Solver-v1.1.0-arm64.exe` | ARM64 |
 
 Single file, no external DLL dependencies, fully offline.
 
 ## Usage
 
 1. Run the exe — it stays in the system tray
-2. Open the GOC cipher terminal puzzle page and press `Alt + C`
-3. The result window shows three "cipher → answer" rows; click any row to copy that answer
-4. The window auto-hides after a 10-second countdown (clicking to copy or dragging the window resets the timer; the countdown freezes while dragging)
-5. If something is misrecognized, edit the answer in the result window — the correction is saved automatically
+2. Open the GOC rune terminal page and, for a new round, submit the recommended "empty, fire, water, wind" first
+3. After the game returns feedback, press `Alt + C`: the four runes and their feedback colors are recognized and recorded into this round
+4. The result window shows the recognized panel plus the next recommended guess; click the recommendation to copy it, and the round is reported as solved once everything is green
+5. The window auto-hides after a 10-second countdown (clicking to copy or dragging the window resets the timer; the countdown freezes while dragging)
+6. If something was misread, fix the runes / colors slot by slot in the result window and the recommendation is recomputed, or use "undo this entry"; switch the color rule or enter history manually in the "Four Runes" window
 
-> Requirements: Windows 10 or later; recognition relies on the system's built-in Chinese OCR language pack (zh-CN, included by default on Chinese-language Windows).
+> Requirements: Windows 10 or later; glyph recognition relies on the system's built-in Chinese OCR language pack (zh-CN, included by default on Chinese-language Windows).
 
 ## Technical Details
 
-- **Recognition pipeline** (`src-tauri/src/solver.rs`): luminance-channel binarization + row detection to locate cards; tight ROI cropping to work around Windows OCR returning empty strings for wide images; grayscale normalization (background→white, text→black, anti-aliasing preserved) to boost accuracy, with hard binarization as fallback
-- **Decryption semantics:** backward N → each letter -N, forward N → each letter +N; a small built-in word list is used only for answer verification hints (✓ matched / ？unverified)
+- **Rune recognition pipeline** (`src-tauri/src/`): full-screen capture → locate the four rune frames → sample the frame border to decide the feedback color → recognize the single-character rune; any slot that cannot be recognized is left empty and corrected in the result window
+- **Recommendation engine** (`src/utils/runes.js` + Web Worker): the 1296 candidate answers are filtered by the color rule (presence = yellow / count-based), yielding a next guess that is guaranteed to finish within four submissions
+- **Round history** (`src/utils/rune-session.js`): localStorage key `goc-rune-session-v1`, shared by the hotkey pipeline and the manual helper
 - **Result window** (`src-tauri/src/window.rs`): Tauri v1 + windows-rs adds the WS_EX_NOACTIVATE / SW_SHOWNA Win32 calls; the countdown freezes while the window is being dragged
 - **Triple-architecture builds:** x64 (x86_64-pc-windows-gnu), x86 / ARM64 (llvm-mingw gnullvm); all artifacts pass PE-header and DLL import-table checks (system libraries only)
 
@@ -104,61 +106,41 @@ Make sure the app is running in the tray, and that the game runs in borderless-w
 </details>
 
 <details>
-<summary><b>Empty or garbled results?</b></summary>
+<summary><b>A rune or feedback color was misread?</b></summary>
 
-Make sure the Chinese language pack is installed (Settings → Time & Language → Language → Add Chinese). If only a few characters are wrong, just fix them in the result window — corrections are remembered.
+The result window lists the four recognized runes and colors — click a slot to change it to the correct rune / color and the recommendation is recomputed automatically, or use "undo this entry" and retry. If the whole panel was misread, use the box-select button in the result window to drag-select the rune panel and recognize it again.
 </details>
 
 <details>
 <summary><b>Recognition breaks with filters enabled?</b></summary>
 
-Since v1.0.3, color detection adapts to luminance-type filters such as NVIDIA Freestyle / in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
+Feedback colors are judged by the relative order of frame border colors, which already adapts to luminance-type filters such as NVIDIA Freestyle / in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
 </details>
 
 <details>
 <summary><b>Failing on 4K / high-resolution, or an "interface too small" hint?</b></summary>
 
-Since v1.0.4, small UIs on high-resolution screens are adapted automatically (small-UI parameter set + OCR scale derived from measured glyph height). If it still fails, use the box-select button in the result window header to drag-select the full puzzle dialog (labels, ciphers and input box included) — small selections are upscaled 2x before recognition. Raising the in-game UI scale also helps a lot.
+Recognition scales adaptively from the measured glyph height; if it still fails, use the box-select button in the result window to drag-select the full rune panel (all four runes and their frames) — small selections are upscaled before recognition. Raising the in-game UI scale also helps a lot.
 </details>
 
 ## Changelog
 
-### v1.0.4 (2026-11-04) — Region-Select Returns + High-Res / 4K Adaptation
+### v1.1.0 — Hotkey now runs automatic rune recognition
 
-1. **Region-select from the result window:** New four-corner button next to ⠿ in the header — click to hide the result window, drag-select a full-screen region, recognize, and get results back in the result window; the v1.0.1 manual selection capability returns
-2. **Small-selection upscaling:** Selections smaller than 1100×700 are upscaled 2x (CatmullRom) before entering the pipeline, bringing 4K@100% small text back into the tuned size range
-3. **Cipher-only solving:** When no "shift forward / backward" label is present, the cipher is read directly via column-projection segmentation, with a three-level fallback: learned corrections → built-in word list → manual ± buttons
-4. **4K field localization fix:** Low-watermark + 70-row bridging extension for vertical bands, re-joining dialog bands torn apart by dark input-box rows
-5. **Degraded fallback for failed localization:** When automatic locating fails, reads bands directly within the dialog area using a blue-dark mask + row-band high-pass, keeping only high-confidence results
-6. **High-resolution small-UI adaptation:** Screens ≥2560 px wide automatically retry with a small-UI parameter set; OCR magnification (2–8x) is derived from measured glyph height when the input box is too small
-7. **Fixed near-white pixel misdetection:** Color-detection channel arithmetic changed from u8 to u16, eliminating addition wrap-around that misread near-white pixels as dark blue — the root cause of failures under white night-vision filters
+1. **`Alt + C` re-wired:** full-screen capture → locate the four rune slots of the current guess → recognize 4 runes and 4 feedback colors → append the entry to this round's history → topmost window shows the next recommended guess
+2. **The tray "capture & recognize runes" entry runs the same pipeline:** hotkey, tray menu and the result window's box-select button all share one automatic flow
+3. **The result window now carries rune results:** recognized panel, recommended guess, per-slot correction, undo-entry and new-round
+4. **The manual helper is kept:** the "Four Runes" window keeps handling color-rule switching, manual entry and joining mid-round
+5. **The old cipher pipeline is gone:** card pixel locating, cipher-label parsing, shift decryption, the answer word list and self-learning corrections, plus the retired wasm OCR front-end and its dependencies
 
-### v1.0.3 (2026-11-03) — New Puzzle Page Adaptation
+### Previous versions
 
-Full rewrite after the game updated to a three-card puzzle page:
+- **v1.0.4** — region-select fallback in the result window, high-resolution / 4K field adaptation
+- **v1.0.3** — system built-in OCR engine and topmost result window, label-driven decryption replacing the fixed shift
+- **v1.0.1** — statically linked WebView2Loader for a true single-file exe; triple-architecture release convention
+- **v1.0.0** — initial public release
 
-1. **Fully automatic recognition:** `Alt + C` captures the full screen and locates the three cipher cards automatically — no manual region selection anymore
-2. **OCR engine swap:** Tesseract.js (wasm models) retired in favor of the Windows built-in Windows.Media.Ocr engine — zero model downloads, fully offline, smaller exe
-3. **Label-based decryption:** Reads each card's "shift forward / backward by N" label and decrypts accordingly (backward → -N, forward → +N), replacing the fixed Caesar -3
-4. **New result window:** Always on top without stealing focus, three "cipher → answer" rows, click to copy, auto-hides after a 10-second countdown
-5. **Self-learning:** Corrections made in the result window are remembered permanently — if the game's semantics ever change, one fix is enough
-6. **Filter adaptation:** Relative color-order detection + grayscale normalization, compatible with color drift from NVIDIA Freestyle / in-game brightness filters
-7. Cipher word-length limit extended to 3–12 letters; the old manual-selection pipeline is retired
-8. **Field localization hardening:** Adaptive column-projection thresholds, layered fallback + equal-width cluster validation for the input box, and cross-cluster consensus for cipher bands — fixing recognition failures in real-world scenes such as dimmed holograms and cursor hover overlap
-
-### v1.0.1 (2026-10-27)
-
-1. OCR logic tuning — 100% accuracy on both regression screenshots
-2. Statically linked WebView2Loader for a true single-file exe (no bundled DLLs)
-3. Fixed blank windows caused by missing `custom-protocol` build feature, broken logo, etc.
-4. Completed x86 / ARM64 artifacts; triple-architecture release convention established
-
-### v1.0.0 (2026-10-19) — Initial Public Release
-
-1. Manual region selection → Tesseract.js OCR → Caesar -3 decryption → auto copy to clipboard
-2. Single-file exe for x64 / x86 / ARM64
-
-> v1.0.2 was an internal build (failure logging + tray "View Log" entry), never separately released; its content is included in v1.0.3. Full release notes at [Releases](../../releases).
+> Historical note: the v1.0.x cipher-decryption pipeline was removed entirely in v1.1.0 and no entry point for it remains. Full release notes at [Releases](../../releases).
 
 ## License & Credits
 

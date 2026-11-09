@@ -124,15 +124,6 @@
                     "title": "Tamanho da Fonte"
                 }
             },
-            "recognize": {
-                "label": "Reconhecimento",
-                "title": "Configurações de Reconhecimento",
-                "language": "Idioma de Reconhecimento",
-                "delete_newline": "Excluir Nova Linha Automaticamente",
-                "auto_copy": "Copiar Automaticamente",
-                "hide_window": "Ocultar Janela de Reconhecimento",
-                "close_on_blur": "Fechar janela quando o foco for perdido"
-            },
             "hotkey": {
                 "label": "Atalho",
                 "title": "Configurações de Atalhos",
@@ -205,14 +196,6 @@
             "delete_newline": "Excluir Quebra de Linha",
             "translate_back": "Tradução de volta ao original",
             "retry": "Tentar novamente"
-        },
-        "recognize": {
-            "recognize": "Reconhecimento",
-            "translate": "Traduzir",
-            "copy_img": "Copiar imagem",
-            "copy_text": "Copiar",
-            "delete_newline": "Excluir Quebra de Linha",
-            "delete_space": "Excluir Espaço"
         }
     }
 }
