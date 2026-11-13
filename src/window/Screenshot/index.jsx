@@ -20,6 +20,10 @@ export default function Screenshot() {
 
     useEffect(() => {
         const capture = () => {
+            // 窗口复用（screenshot_request）时重置上一次的选区状态，
+            // 避免残留旧选区矩形或 isDown 锚点
+            setIsDown(false);
+            setIsMoved(false);
             currentMonitor().then((monitor) => {
                 const position = monitor.position;
                 invoke('screenshot', { x: position.x, y: position.y })
@@ -33,9 +37,9 @@ export default function Screenshot() {
                         });
                     })
                     .catch((e) => {
-                        // 截图失败时关闭隐藏窗口，避免残留僵尸窗口
+                        // 截图失败时隐藏窗口，避免残留可见的僵尸窗口（窗口保留供复用）
                         console.error(e);
-                        void appWindow.close();
+                        void appWindow.hide();
                     });
             });
         };
@@ -79,7 +83,11 @@ export default function Screenshot() {
                         setMouseDownX(e.clientX);
                         setMouseDownY(e.clientY);
                     } else {
-                        void appWindow.close();
+                        // 取消框选：只隐藏不销毁（关闭全屏透明窗会触发 WebView2
+                        // 整屏黑闪，v1.2.7 起窗口保留隐藏供下次复用）
+                        setIsDown(false);
+                        setIsMoved(false);
+                        void appWindow.hide();
                     }
                 }}
                 onMouseMove={(e) => {
@@ -103,11 +111,13 @@ export default function Screenshot() {
                     const height = bottom - top;
                     if (width <= 0 || height <= 0) {
                         warn('Screenshot area is too small');
-                        await appWindow.close();
+                        await appWindow.hide();
                     } else {
                         await invoke('cut_image', { left, top, width, height });
                         await emit('success');
-                        await appWindow.close();
+                        // v1.2.7 黑闪修复：不再 close()。销毁全屏透明窗会触发
+                        // WebView2 整屏黑闪（用户看到的「框选后黑屏一下」）；
+                        // 窗口保留隐藏，下次框选经 screenshot_request 复用重截。
                     }
                 }}
             />

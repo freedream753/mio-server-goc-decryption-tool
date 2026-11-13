@@ -1,6 +1,6 @@
 [package]
 name = "goc-solver"
-version = "1.1.0"
+version = "1.2.10"
 description = "GOC Rune Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
@@ -38,6 +38,8 @@ screenshots = "=0.7.2"
 base64 = "0.22"
 thiserror = "1.0"
 font-kit = "0.14.2"
+# font-kit 栅格化 API 需要 Transform2F/Vector2I 类型（font-kit 不再导出）
+pathfinder_geometry = "0.5.1"
 image = "0.25.4"
 
 [target.'cfg(windows)'.dependencies]

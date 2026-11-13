@@ -8,8 +8,10 @@ mod hotkey;
 mod runes;
 mod screenshot;
 mod server;
+mod simon;
 mod solver;
 mod tray;
+mod wave;
 mod window;
 
 use cmd::*;
@@ -129,13 +131,16 @@ fn main() {
                         .show();
                 }
             }
+            // 恢复上次会话的裁切模式（含屏幕上的指示框）
+            window::restore_crop_region();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             reload_store, cut_image, log_event, register_shortcut_by_frontend, update_tray, screenshot, font_list,
-            window::rune_window, get_rune_scan, show_result_window, reset_result_timer,
-            begin_result_drag, hide_result_window, focus_result_window, update_shortcut,
-            ocr_recognize
+            get_rune_scan, rune_recognize, show_result_window, hide_result_window, set_result_size, update_shortcut,
+            crop_select, crop_clear, get_crop_state,
+            get_wave_scan, wave_scan_cmd, wave_select_region,
+            simon_start, simon_stop, get_simon_steps, get_simon_state
         ])
         .on_system_tray_event(tray_event_handler)
         .build(tauri::generate_context!())

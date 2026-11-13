@@ -1,33 +1,36 @@
 const symbols = '空火水风土雷';
 const codes = Array.from({length:1296},(_,n)=>[Math.floor(n/216),Math.floor(n/36)%6,Math.floor(n/6)%6,n%6]);
-function feedback(g,s,mode){
+// 判色规则固定为按数量匹配（count）：游戏按剩余数量消耗式匹配黄色
+// （实拍样张 雷风风风/黄绿黄红 在 presence 下无解，v1.2.0 起删除 presence 分支）
+function feedback(g,s){
   let colors=[0,0,0,0], remaining=[0,0,0,0,0,0];
   for(let i=0;i<4;i++) if(g[i]!==s[i]) remaining[s[i]]++;
   for(let i=0;i<4;i++){
     if(g[i]===s[i]) colors[i]=2;
-    else if(mode==='presence' && s.includes(g[i])) colors[i]=1;
-    else if(mode==='count' && remaining[g[i]]){colors[i]=1;remaining[g[i]]--;}
+    else if(remaining[g[i]]){colors[i]=1;remaining[g[i]]--;}
   }
   return colors.reduce((n,c,i)=>n+c*3**i,0);
 }
-function createSolver(mode){
-  const matrix=codes.map(g=>Uint8Array.from(codes,s=>feedback(g,s,mode))), cache=new Map();
+function createSolver(){
+  const matrix=codes.map(g=>Uint8Array.from(codes,s=>feedback(g,s)));
+  // 候选优先策略（v1.2.9，用户偏好「搏直接命中」）：只在可能是答案的组合里选，
+  // 同为候选时取最坏情况下剩余可能最少的（能区分剩局的候选天然胜出，且本身
+  // 就有机会一发命中）；区分不了就按序猜，靠命中赌运气，不再给「探针步」。
+  // 首猜固定 空火水风（全空间最优开局，本身也是候选）。
   function choose(cs,turns){
     if(!cs.length||turns<1)return null;
     if(cs.length===1)return cs[0];
-    if(turns===1)return null;
-    const key=turns+':'+cs.join(',');if(cache.has(key))return cache.get(key);
-    const options=[],set=new Set(cs),guesses=cs.length===1296?[51]:codes.keys();
-    for(const gi of guesses){
+    if(cs.length===1296)return 51;
+    let best=-1,worst=0,sumsq=0;
+    for(const gi of cs){
       const buckets=new Map();
-      for(const si of cs){const r=matrix[gi][si];if(r===80)continue;if(!buckets.has(r))buckets.set(r,[]);buckets.get(r).push(si);}
-      const groups=[...buckets.values()],largest=Math.max(0,...groups.map(b=>b.length));
-      if(largest===cs.length || (turns===2&&largest>1))continue;
-      options.push({gi,groups,score:[largest,groups.reduce((n,b)=>n+b.length*b.length,0),set.has(gi)?0:1]});
+      for(const si of cs){const r=matrix[gi][si];if(r===80)continue;const b=buckets.get(r);b?b.push(si):buckets.set(r,[si]);}
+      const groups=[...buckets.values()];
+      const l=Math.max(0,...groups.map(b=>b.length));
+      const s=groups.reduce((n,b)=>n+b.length*b.length,0);
+      if(best<0||l<worst||(l===worst&&s<sumsq)){best=gi;worst=l;sumsq=s;}
     }
-    options.sort((a,b)=>a.score[0]-b.score[0]||a.score[1]-b.score[1]||a.score[2]-b.score[2]||a.gi-b.gi);
-    for(const o of options)if(o.groups.sort((a,b)=>b.length-a.length).every(b=>choose(b,turns-1)!==null)){cache.set(key,o.gi);return o.gi;}
-    cache.set(key,null);return null;
+    return best;
   }
   return {matrix,choose};
 }

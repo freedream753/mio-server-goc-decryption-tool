@@ -14,10 +14,16 @@ body,
     display: flex;
     flex-direction: column;
     gap: 6px;
-    height: 100%;
+    /* v1.2.7：高度跟随内容（窗口高度由前端 ResizeObserver 按此调），不再撑满窗口
+       ——之前 height:100% 会把窗口富余的透明区域也罩进面板，且窗口高于内容时
+       点击下方空白会被透明区域拦截。max-height:100vh 兜底（内容超屏时钳在视口
+       高）：必须精确 100vh 不留空隙——之前 calc(100vh-4px) 的空隙会让容器高度
+       与上报高度（offsetHeight，border-box 含边框）出现 4px 失配、可收缩子项被
+       压扁后测量逐级变小，窗口锁死在低点；现在上报的就是被钳后的 offsetHeight，
+       数值收敛稳定。正常（未超屏）时高度仍只由内容决定，与视口解耦 */
     width: 100%;
-    /* 结果窗口按宽 420 设计；窗口尺寸未按契约调整时也不至于被拉散 */
     max-width: 420px;
+    max-height: 100vh;
     margin: 0 auto;
     box-sizing: border-box;
     background: rgba(2, 8, 24, 0.96);
@@ -64,25 +70,20 @@ body,
     cursor: move;
 }
 
-/* 框选识别按钮：四角方框标志 + 文字，先隐藏本窗口再拉起手动框选管线 */
+/* 框选识别按钮：四角方框标志（v1.2.4 起纯图标），先隐藏本窗口再拉起手动框选 */
 .result-ocr {
     flex: none;
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 0 4px;
+    justify-content: center;
+    width: 18px;
     height: 16px;
-    font-size: 11px;
     line-height: 1;
     color: #4ea1ff;
     background: rgba(78, 161, 255, 0.14);
     border: 1px solid rgba(78, 161, 255, 0.45);
     border-radius: 4px;
     cursor: pointer;
-}
-
-.result-ocr-text {
-    font-size: 10.5px;
 }
 
 .result-ocr:hover {
@@ -94,18 +95,19 @@ body,
     background: rgba(78, 161, 255, 0.55);
 }
 
+/* 裁切模式激活态：橙色实心，与全屏指示框同色，一眼可辨 */
+.result-ocr.is-active {
+    color: #1c1206;
+    background: #ffb35c;
+    border-color: #ffb35c;
+}
+
 .result-title {
     flex: 1;
     font-weight: 700;
     font-size: 12px;
     color: #4ea1ff;
     white-space: nowrap;
-}
-
-.result-countdown {
-    font-family: Consolas, monospace;
-    font-size: 11px;
-    color: #6f8bb5;
 }
 
 .result-close {
@@ -123,232 +125,102 @@ body,
     background: rgba(255, 255, 255, 0.12);
 }
 
-/* 四个符文位：符文选择 + 三色反馈按钮 */
-.result-slots {
+/* ---------------- v1.2.1 关卡页签（v1.2.4 起为密码 + 波形 + 西蒙） ---------------- */
+
+/* 页签条：样式对齐 lvl-btn 的紧凑暗色 */
+.result-tabs {
     flex: none;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-}
-
-.result-slot {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
     gap: 4px;
-    padding: 4px 4px 5px;
-    background: #182a44;
-    border: 1px solid rgba(78, 161, 255, 0.25);
-    border-radius: 6px;
 }
 
-/* 待确认：醒目琥珀色描边，提示人工补齐 */
-.result-slot.is-pending {
-    border-color: rgba(255, 193, 102, 0.8);
-    background: rgba(63, 45, 18, 0.55);
-}
-
-.result-slot-index {
-    font-size: 10px;
-    line-height: 1;
-    text-align: center;
-    color: #7f9ab8;
-}
-
-.result-slot.is-pending .result-slot-index {
-    color: #ffc966;
-}
-
-.result-select {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 1px 0;
-    font-size: 16px;
-    line-height: 1.4;
-    text-align: center;
-    text-align-last: center;
-    color: #eaf2ff;
-    background: #213a59;
-    border: 1px solid rgba(78, 161, 255, 0.45);
-    border-radius: 4px;
-    outline: none;
-}
-
-.result-select:focus {
-    border-color: #7dd3fc;
-}
-
-.result-slot.is-pending .result-select {
-    color: #ffc966;
-    border-color: rgba(255, 193, 102, 0.75);
-}
-
-.result-colors {
-    display: flex;
-    gap: 3px;
-}
-
-/* 未判色：虚线框提示该位反馈色缺失 */
-.result-colors.is-unset {
-    border: 1px dashed rgba(255, 193, 102, 0.55);
-    border-radius: 4px;
-    padding: 1px;
-}
-
-.result-color {
+.result-tab {
     flex: 1;
-    min-width: 0;
-    padding: 1px 0;
+    padding: 3px 0;
     font-family: inherit;
     font-size: 11px;
-    line-height: 1.5;
-    background: #213a59;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    opacity: 0.6;
+    color: #b6c9e2;
+    background: #182a44;
+    border: 1px solid rgba(78, 161, 255, 0.3);
+    border-radius: 5px;
     cursor: pointer;
 }
 
-.result-color:hover {
-    opacity: 0.9;
+.result-tab:hover {
+    color: #edf6ff;
+    background: rgba(78, 161, 255, 0.25);
 }
 
-.result-color.c0 {
-    color: #ff987f;
+.result-tab.active {
+    color: #ffffff;
+    background: #087ba6;
+    border-color: #087ba6;
+    font-weight: 700;
 }
 
-.result-color.c1 {
-    color: #f9d96e;
+/* 页面包裹：常驻挂载，隐藏仅 display:none（保住监听与录制状态） */
+.lvl-wrap {
+    /* v1.2.7 允许收缩（flex:0 1 auto + min-height:0）：内容超屏（框选后窗口
+       被显示器高度钳制时常见）由所在页页内滚动消化，不再整体撑出屏幕底部
+       被裁。flex:none 会让超长内容整体被窗口底边裁掉（曲线/按钮不可见） */
+    flex: 0 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
-.result-color.c2 {
-    color: #7ee0b0;
+.lvl-wrap.is-hidden {
+    display: none;
 }
 
-.result-color.selected {
-    opacity: 1;
-    border-color: currentColor;
-    background: #304c6b;
-    box-shadow: 0 0 0 1px currentColor;
+/* 关卡页根容器：随内容定高；被 max-height 钳制时自身滚动（min-height:0
+   允许在 flex 列里收缩），保证底部内容/按钮始终可达 */
+.lvl-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow-y: auto;
+    /* 超屏页内滚动时的细滚动条（默认滚动条在深色主题下又宽又亮） */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(78, 161, 255, 0.45) transparent;
 }
 
-/* 状态区：剩余机会 / 候选数 / 判色规则 / 中文提示 */
-.result-status {
-    flex: none;
-    padding: 4px 6px 5px;
-    background: #183452;
-    border: 1px solid rgba(57, 126, 172, 0.6);
-    border-radius: 6px;
+.lvl-desc {
+    margin: 0;
     font-size: 11px;
     line-height: 1.45;
-}
-
-.status-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-size: 10.5px;
     color: #8fb2d6;
 }
 
-.status-line b {
-    color: #7dd3fc;
-}
-
-.status-mode {
-    margin-left: auto;
-    padding: 0 4px;
+.lvl-hint {
+    margin: 0;
+    font-size: 11px;
     color: #7f9ab8;
-    border: 1px solid rgba(127, 154, 184, 0.4);
-    border-radius: 3px;
 }
 
-.result-status p {
-    margin: 2px 0 0;
+.lvl-error {
+    font-size: 11px;
+    color: #ff987f;
+}
+
+/* 符文识别失败提示（页签下方独立一行） */
+.rune-scan-error {
+    flex: none;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.lvl-status {
+    font-size: 11.5px;
+    font-weight: 600;
     color: #edf6ff;
 }
 
-.result-status p.is-warn {
-    color: #ffb27f;
-}
-
-.result-status p.is-solved {
-    color: #6ee7a0;
-    font-weight: 700;
-}
-
-.status-hint {
-    margin-top: 2px;
-    font-size: 10.5px;
-    color: #7f9ab8;
-}
-
-/* 推荐提交：整行可点即复制 */
-.result-recommend {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 5px 8px;
-    background: rgba(45, 103, 153, 0.25);
-    border: 1px solid rgba(78, 161, 255, 0.45);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.12s;
-}
-
-.result-recommend:hover {
-    background: rgba(78, 161, 255, 0.3);
-}
-
-.result-recommend.is-idle {
-    cursor: default;
-}
-
-.result-recommend.is-solved {
-    border-color: rgba(110, 231, 160, 0.6);
-}
-
-.recommend-text {
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    color: #eaf2ff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.result-recommend.is-idle .recommend-text {
-    color: #6f8bb5;
-}
-
-.result-recommend.is-solved .recommend-text {
-    color: #6ee7a0;
-}
-
-.recommend-copy {
-    flex: none;
-    padding: 1px 6px;
-    font-size: 11px;
-    color: #7dd3fc;
-    border: 1px solid rgba(125, 211, 252, 0.5);
-    border-radius: 4px;
-}
-
-/* 操作按钮：贴底，窗口高度变化时不影响上方内容 */
-.result-actions {
-    flex: none;
-    display: flex;
-    gap: 6px;
-    margin-top: auto;
-}
-
-.result-actions button {
-    flex: 1;
-    padding: 5px 0;
+/* 通用小按钮：紧凑暗色风格 */
+.lvl-btn {
+    padding: 4px 10px;
     font-family: inherit;
     font-size: 12px;
     color: #edf6ff;
@@ -356,19 +228,293 @@ body,
     border: 1px solid rgba(78, 161, 255, 0.5);
     border-radius: 5px;
     cursor: pointer;
+    white-space: nowrap;
 }
 
-.result-actions button:hover:not(:disabled) {
+.lvl-btn:hover:not(:disabled) {
     background: rgba(78, 161, 255, 0.35);
 }
 
-.result-actions button:disabled {
+.lvl-btn:disabled {
     opacity: 0.4;
     cursor: default;
 }
 
-.result-actions .act-record:not(:disabled) {
+.lvl-btn.primary {
     background: #087ba6;
     border-color: #087ba6;
     font-weight: 700;
+}
+
+.lvl-btn.is-danger {
+    background: #a64b2a;
+    border-color: #a64b2a;
+}
+
+.lvl-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.lvl-row.between {
+    justify-content: space-between;
+}
+
+.lvl-tools {
+    display: flex;
+    gap: 4px;
+}
+
+.lvl-input {
+    padding: 3px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #eaf2ff;
+    background: #213a59;
+    border: 1px solid rgba(78, 161, 255, 0.45);
+    border-radius: 4px;
+    outline: none;
+    width: 150px;
+}
+
+.lvl-input:focus {
+    border-color: #7dd3fc;
+}
+
+/* 反馈色通用 */
+.lvl-c0 {
+    color: #ff987f;
+}
+
+.lvl-c1 {
+    color: #f9d96e;
+}
+
+.lvl-c2 {
+    color: #7ee0b0;
+}
+
+/* 第一关 波形结果：四个滑块可视化（与游戏滑块同构，滑钮位置即照抄位置） */
+.wave-result {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+/* 反推曲线预览：深色画布上的橙色目标线（与游戏画布同构），
+   preserveAspectRatio=none 拉伸铺满 + non-scaling-stroke 保持线宽恒定 */
+.wave-preview {
+    height: 56px;
+    background: #0a1220;
+    border: 1px solid rgba(57, 126, 172, 0.6);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.wave-preview svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.wave-preview path {
+    fill: none;
+    stroke: #ffb35c;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+}
+
+.wave-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #182a44;
+    border: 1px solid rgba(57, 126, 172, 0.6);
+    border-radius: 6px;
+    padding: 7px 10px;
+}
+
+.wave-slider-name {
+    flex: none;
+    width: 30px;
+    font-size: 12px;
+    color: #8fb2d6;
+}
+
+.wave-slider-track {
+    position: relative;
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: #213a59;
+}
+
+.wave-slider-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 2px;
+    background: #4ea1ff;
+}
+
+.wave-slider-thumb {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #7dd3fc;
+    border: 2px solid #0a3050;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+    transform: translate(-50%, -50%);
+}
+
+.wave-slider-val {
+    flex: none;
+    width: 28px;
+    text-align: right;
+    font-size: 15px;
+    color: #7dd3fc;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 第二关 步骤序列 */
+.simon-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.simon-step {
+    background: #182a44;
+    border: 1px solid rgba(57, 126, 172, 0.6);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 14px;
+    color: #edf6ff;
+}
+
+/* 第三关 密码破解：4 反馈框 + 6 符文选项。
+   v1.2.4：修复边框溢出（minmax(0,1fr) 防内容撑破轨道）；标色状态从
+   「只换边框色」改为 背景+边框+文字 三重着色——深蓝底主题下纯边框色
+   （尤其绿红黄互相之间）几乎不可辨 */
+.cipher-slots {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.cipher-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 2px;
+    font-family: inherit;
+    background: #182a44;
+    border: 2px solid #527198;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* 当前选中框：青色边框 + 外圈双高亮 */
+.cipher-slot.is-selected {
+    border-color: #7dd3fc;
+    box-shadow: 0 0 0 2px #7dd3fc;
+}
+
+/* 反馈色状态：背景浸染同色，一眼可辨绿/红/黄 */
+.cipher-slot.is-2 {
+    border-color: #7ee0b0;
+    background: rgba(126, 224, 176, 0.2);
+}
+
+.cipher-slot.is-0 {
+    border-color: #ff987f;
+    background: rgba(255, 152, 127, 0.2);
+}
+
+.cipher-slot.is-1 {
+    border-color: #f9d96e;
+    background: rgba(249, 217, 110, 0.2);
+}
+
+.cipher-slot.is-2 .cipher-symbol,
+.cipher-slot.is-2 .cipher-color-name {
+    color: #7ee0b0;
+}
+
+.cipher-slot.is-0 .cipher-symbol,
+.cipher-slot.is-0 .cipher-color-name {
+    color: #ff987f;
+}
+
+.cipher-slot.is-1 .cipher-symbol,
+.cipher-slot.is-1 .cipher-color-name {
+    color: #f9d96e;
+}
+
+.cipher-symbol {
+    font-size: 22px;
+    line-height: 1.2;
+    color: #eaf2ff;
+}
+
+.cipher-color-name {
+    font-size: 10px;
+    color: #7f9ab8;
+}
+
+.cipher-options {
+    display: flex;
+    gap: 4px;
+}
+
+.cipher-options button {
+    flex: 1;
+    padding: 4px 0;
+    font-family: inherit;
+    font-size: 15px;
+    color: #edf6ff;
+    background: #213a59;
+    border: 1px solid rgba(78, 161, 255, 0.5);
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.cipher-options button:hover:not(:disabled) {
+    background: rgba(78, 161, 255, 0.35);
+}
+
+.cipher-options button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.rune-history {
+    margin: 0;
+    padding: 0 0 0 2px;
+    list-style: none;
+    font-size: 11px;
+    color: #b6c9e2;
+}
+
+.rune-history li {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(48, 70, 100, 0.6);
+}
+
+.rune-history b {
+    margin-left: 6px;
+    font-weight: 400;
 }

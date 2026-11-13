@@ -1,12 +1,10 @@
-// 本局符文会话的唯一存取入口（localStorage 键 goc-rune-session-v1）。
-// Runes 手动助手与 Result 自动识别窗口都必须经这里读写，避免两边各自 getItem/setItem 互相覆盖。
+// 本局符文会话的唯一存取入口（localStorage 键 goc-rune-session-v2）。
+// Runes 助手窗口（第三关）与 Result 自动识别窗口都必须经这里读写，避免两边各自 getItem/setItem 互相覆盖。
 // 会话结构（与 Rust 侧契约一致）：
-//   mode: 'presence' | 'count'
 //   history: [{ guess, result }]，guess = Σ rune_i * 6^(3-i)（0..1295），result = Σ color_i * 3^i（0..80）
-//   spent: 0..3（中途接入时已用掉的次数）
+//   （v1.2.0 起判色规则固定 count、无 spent 补录，history 满 4 条即终局）
 
-const SESSION_KEY = 'goc-rune-session-v1';
-const MODES = ['presence', 'count'];
+const SESSION_KEY = 'goc-rune-session-v2';
 const MAX_TURNS = 4;
 const SLOT_COUNT = 4;
 const RUNE_COUNT = 6;
@@ -14,10 +12,8 @@ const COLOR_COUNT = 3;
 const SECRET_COUNT = RUNE_COUNT ** SLOT_COUNT; // 1296
 const MAX_RESULT = COLOR_COUNT ** SLOT_COUNT - 1; // 80
 
-// 默认判色规则为「按数量匹配」：实拍样张 雷风风风 / 黄绿黄红（result=16）在 presence 下 count=0 自相矛盾，
-// 只有 count 下有解（9 个候选），说明游戏按剩余数量消耗式匹配黄色。
 function defaultSession() {
-    return { mode: 'count', history: [], spent: 0 };
+    return { history: [] };
 }
 
 function isValidRecord(record) {
@@ -35,13 +31,8 @@ function isValidRecord(record) {
 function isValidSession(value) {
     return (
         !!value &&
-        MODES.includes(value.mode) &&
         Array.isArray(value.history) &&
         value.history.length <= MAX_TURNS &&
-        Number.isInteger(value.spent) &&
-        value.spent >= 0 &&
-        value.spent <= MAX_TURNS - 1 &&
-        value.history.length + value.spent <= MAX_TURNS &&
         value.history.every(isValidRecord)
     );
 }
@@ -51,17 +42,16 @@ function loadSession() {
     try {
         const value = JSON.parse(localStorage.getItem(SESSION_KEY));
         if (isValidSession(value)) {
-            return {
-                mode: value.mode,
-                history: value.history.map(({ guess, result }) => ({ guess, result })),
-                spent: value.spent,
-            };
+            return { history: value.history.map(({ guess, result }) => ({ guess, result })) };
         }
     } catch {
         /* 存档不可用：按新局处理。 */
     }
     return defaultSession();
 }
+
+// 同文档会话变更广播：storage 事件不发给写入方自身，同窗口内识别页/密码页靠它同步
+export const SESSION_EVENT = 'goc-rune-session-changed';
 
 // 写入：存储配额/隐私模式失败不阻断解题
 function saveSession(session) {
@@ -70,11 +60,12 @@ function saveSession(session) {
     } catch {
         /* 保存失败不阻断解密。 */
     }
+    window.dispatchEvent(new Event(SESSION_EVENT));
     return session;
 }
 
 function remainingTurns(session) {
-    return MAX_TURNS - session.spent - session.history.length;
+    return MAX_TURNS - session.history.length;
 }
 
 // 历史末条即本次记录：同一屏重复按热键不应重复记一条
@@ -99,21 +90,9 @@ function undoLast(session) {
     return session.history.length ? { ...session, history: session.history.slice(0, -1) } : session;
 }
 
-// 新一局：保留判色规则，清空历史与已用次数
-function startNewGame(session) {
-    return { mode: session.mode, history: [], spent: 0 };
-}
-
-function setMode(session, mode) {
-    return MODES.includes(mode) ? { ...session, mode } : session;
-}
-
-function setSpent(session, spent) {
-    const value = Number(spent);
-    if (!Number.isInteger(value) || value < 0 || value > MAX_TURNS - 1 || session.history.length + value > MAX_TURNS) {
-        return session;
-    }
-    return { ...session, spent: value };
+// 新一局：清空历史
+function startNewGame() {
+    return defaultSession();
 }
 
 // 四位符文 -> guess：与 runes.js 的 codes 同序（第 1 位权重最大）
@@ -139,7 +118,6 @@ function recordFromSlots(runes, colors) {
 
 export {
     SESSION_KEY,
-    MODES,
     MAX_TURNS,
     SLOT_COUNT,
     RUNE_COUNT,
@@ -155,8 +133,6 @@ export {
     appendRecord,
     undoLast,
     startNewGame,
-    setMode,
-    setSpent,
     encodeRunes,
     encodeColors,
     recordFromSlots,

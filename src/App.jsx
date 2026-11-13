@@ -7,7 +7,7 @@ import { useTheme } from 'next-themes';
 
 import Screenshot from './window/Screenshot';
 import Result from './window/Result';
-import Runes from './window/Runes';
+import CropOverlay from './window/Crop';
 import { store } from './utils/store';
 import Config from './window/Config';
 import { useConfig } from './hooks';
@@ -18,7 +18,7 @@ const windowMap = {
     screenshot: <Screenshot />,
     config: <Config />,
     result: <Result />,
-    runes: <Runes />,
+    crop: <CropOverlay />,
 };
 
 export default function App() {
@@ -45,15 +45,18 @@ export default function App() {
                 e.preventDefault();
             }
             if (e.key === 'Escape') {
-                if (appWindow.label === 'runes') {
+                // 结果窗口只隐藏不销毁（复用 + Rust 兜底隐藏），Escape 关闭会把
+                // 整窗销毁导致三卡全部消失（密文编辑态按 Esc 取消编辑即触发）；
+                // 裁切指示层为常驻点击穿透窗，不响应 Esc；
+                // 截图框选窗 v1.2.7 起复用：Esc 取消只隐藏，销毁会触发整屏黑闪
+                if (appWindow.label === 'result' || appWindow.label === 'crop') {
+                    return;
+                }
+                if (appWindow.label === 'screenshot') {
                     await appWindow.hide();
                     return;
                 }
-                // 结果窗口只隐藏不销毁（复用 + Rust 兜底隐藏），Escape 关闭会把
-                // 整窗销毁导致三卡全部消失（密文编辑态按 Esc 取消编辑即触发）
-                if (appWindow.label !== 'result') {
-                    await appWindow.close();
-                }
+                await appWindow.close();
             }
         };
         document.addEventListener('keydown', handler);

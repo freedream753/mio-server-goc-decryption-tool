@@ -191,21 +191,22 @@ fn hue_of(r: u8, g: u8, b: u8) -> f32 {
     }
 }
 
-// 反馈色边框候选像素：色相落在 红[330,360)∪[0,25) / 黄[25,95) / 绿[95,205)。
+// 反馈色边框候选像素：色相落在 红[330,360)∪[0,25) / 黄[25,95) / 绿[95,196)。
 // 样张实测（框边中段最亮 60% 像素的中位色）：
 //   黄框 (152,158,112) h=67 · 绿框 (124,188,196) h=187 · 红框 (185,136,131) h=6
-// 绿带上界 205 是关键：面板/按钮的深蓝底 (23,49,87) h=216、框内字芯 (179,192,215)
-// h=218 —— 上界放大会把面板与字形一起吞进掩膜，方框就凑不成独立环。
-// 彩度下限 18 与亮度下限 64 用于剔掉暗部噪声（样张黄色边框彩度只有 46）。
+// 绿带上界 196 是关键：面板深蓝底 hue ≈ 204.5~216（旧样张 (14,53,80) 实测
+// h=204.5，恰好压在旧上界 205 之内整片混进掩膜——连通域被底色黏连、环 bbox 被
+// 撑大，边框带采样采空）；反馈青环 187 与面板底 204.5+ 的分界中点 ≈196。
+// 亮度下限 90 剔暗底噪声（面板底 luma≈47，反馈框 luma≥150）。
 #[inline]
 fn is_colored_border(r: u8, g: u8, b: u8) -> bool {
     let mx = r.max(g).max(b);
     let mn = r.min(g).min(b);
-    if mx < 64 || mx - mn < 18 {
+    if mx < 90 || mx - mn < 18 {
         return false;
     }
     let h = hue_of(r, g, b);
-    h < 205.0 || h >= 330.0
+    h < 196.0 || h >= 330.0
 }
 
 // 白/灰边框（新局尚未提交反馈色时的兜底）：彩度低 + 亮度高。
@@ -258,48 +259,85 @@ fn locate(img: &RgbaImage) -> Result<Vec<Rect>, String> {
     Err("未定位到「当前猜测」的 4 个符文框".into())
 }
 
-// 行投影找候选行带 → 带内列投影找竖边 → 每 8 条竖边凑 4 个框 → 相对几何校验。
-// 用投影而非连通域：样张的黄色边框被视频压缩打散成多段，连通域会碎成一地小块；
-// 实心按钮/面板则在「竖边必须贯穿整带」和「边框比框内亮」两处被剔除。
+// 连通域找环形边框（v1.2.8 重写）：旧「行投影聚带 → 带内找竖边」扛不住大面积
+// 彩色 UI——游戏面板的青色装饰线、青色实心按钮、绿色关卡标签让每行都有 ≥阈值
+// 的彩色像素，行带全部黏成一条巨带，符文框行永远无法独立成带（20261113 1080p
+// 实测裁切帧：彩色掩膜 7.3 万像素，最大行带 399px 高，旧法必败）。
+// 连通域天然抗污染：反馈色边框是紧凑的空心环（面积/外接框 ≈ 0.2~0.5），实心
+// 按钮/标签填充比 ≈ 1.0、装饰线外接框巨大，一滤即走。视频压缩打断的边框先
+// 1px 膨胀桥接（旧样张实测黄色边框碎成多段，膨胀 + 8 连通可桥 ≤3px 断口）。
 fn find_quad(img: &RgbaImage, colored: bool) -> Option<[Rect; 4]> {
     let (w, h) = img.dimensions();
-    let mask = mask_of(img, colored);
-    // 行阈值按图宽自适应：一条边框线横跨一个框宽（样张框宽约为图宽的 2%）
-    let thr_row = (w / 150).max(6);
-    for (by0, by1) in bands(&mask, w, h, thr_row) {
-        let band_h = by1 - by0 + 1;
-        if band_h < 10 {
-            continue;
-        }
-        // 竖边必须贯穿整带（框的左右边框）：阈值取带高的 60%，
-        // 框内字形只有带高的 1/3，不会误判成竖边
-        let bars = bars(&mask, w, by0, by1, (band_h * 3 / 5).max(3));
-        if bars.len() < 8 {
-            continue;
-        }
-        for win in bars.windows(8) {
-            let mut rects = [Rect { x: 0, y: 0, w: 0, h: 0 }; 4];
-            let mut ok = true;
-            for k in 0..4 {
-                let (x0, x1) = (win[k * 2].0, win[k * 2 + 1].1);
-                let ys = if x1 > x0 {
-                    refine_y(&mask, w, x0, x1, by0, by1)
-                } else {
-                    None
-                };
-                match ys {
-                    Some((y0, y1)) => {
-                        rects[k] = Rect { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
-                    }
-                    None => {
-                        ok = false;
-                        break;
-                    }
-                }
+    let mut mask = mask_of(img, colored);
+    dilate1(&mut mask, w, h);
+    let rings: Vec<Rect> = components(&mask, w, h)
+        .into_iter()
+        .filter_map(|c| {
+            let (dx0, dy0, dx1, dy1) = dense_bbox(&c, w)?;
+            let bw = (dx1 - dx0 + 1) as f32;
+            let bh = (dy1 - dy0 + 1) as f32;
+            // 外接框 ≥12px（字形可读下限）、≤ 图宽/6（框宽约占图宽 2%~8%）、
+            // 近正方形、空心（填充比 ≤0.65 剔实心按钮/标签）
+            if !(bw >= 12.0
+                && bh >= 12.0
+                && bw <= (w / 6) as f32
+                && bh <= (w / 6) as f32
+                && (bw / bh) > 0.4
+                && (bw / bh) < 2.5
+                && (c.area as f32 / (bw * bh)) <= 0.65)
+            {
+                return None;
             }
-            if ok {
-                if let Some(q) = validate_quad(&rects, img) {
-                    return Some(q);
+            // 膨胀把环外扩了整整 1px，内缩还原：否则边框采样带
+            // （border_band）采到的是膨胀出来的暗背景，ring_contrast 必败
+            Some(Rect {
+                x: dx0 + 1,
+                y: dy0 + 1,
+                w: (dx1 - dx0).saturating_sub(1),
+                h: (dy1 - dy0).saturating_sub(1),
+            })
+        })
+        .collect();
+    // 按 y 中心聚类成行（相邻中心差 ≤ 0.6×框高），行内按 x 序取 4 框组合逐一过
+    // validate_quad（尺寸/节距/环亮度校验），首个通过者即「当前猜测」行
+    let mut sorted = rings;
+    sorted.sort_by_key(|r| (r.y + r.h / 2, r.x));
+    let mut rows: Vec<Vec<Rect>> = Vec::new();
+    for r in sorted {
+        let cy = (r.y + r.h / 2) as f32;
+        let rh = r.h as f32;
+        match rows.last_mut() {
+            Some(row)
+                if {
+                    let last = row.last().unwrap();
+                    let lcy = (last.y + last.h / 2) as f32;
+                    (cy - lcy).abs() <= 0.6 * rh.max(last.h as f32)
+                } =>
+            {
+                row.push(r);
+            }
+            _ => rows.push(vec![r]),
+        }
+    }
+    for row in &mut rows {
+        // 聚类按 cy 邻接粘连，但 cy 有 ±1px 量化差会把 x 序打乱
+        //（旧样张实测 442/443 交错），节距校验要求严格递增——按 x 重排
+        row.sort_by_key(|r| r.x);
+    }
+    for row in &rows {
+        let n = row.len();
+        if n < 4 {
+            continue;
+        }
+        for a in 0..n {
+            for b in (a + 1)..n {
+                for c in (b + 1)..n {
+                    for d in (c + 1)..n {
+                        let quad = [row[a], row[b], row[c], row[d]];
+                        if let Some(q) = validate_quad(&quad, img) {
+                            return Some(q);
+                        }
+                    }
                 }
             }
         }
@@ -307,67 +345,103 @@ fn find_quad(img: &RgbaImage, colored: bool) -> Option<[Rect; 4]> {
     None
 }
 
-// 行投影聚带：mask 像素数 >= thr 的行，允许 2 行断续桥接
-fn bands(mask: &[bool], w: u32, h: u32, thr: u32) -> Vec<(u32, u32)> {
-    let mut out = Vec::new();
-    let mut start: Option<u32> = None;
-    let mut miss = 0u32;
+// 1px 8 邻域膨胀（就地）：桥接视频压缩打断的细边框（≤3px 断口）
+fn dilate1(mask: &mut Vec<bool>, w: u32, h: u32) {
+    let src = mask.clone();
     for y in 0..h {
-        let c = (0..w).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
-        if c >= thr {
-            if start.is_none() {
-                start = Some(y);
+        for x in 0..w {
+            let i = (y * w + x) as usize;
+            if src[i] {
+                continue;
             }
-            miss = 0;
-        } else if start.is_some() {
-            miss += 1;
-            if miss > 2 {
-                out.push((start.unwrap(), y - miss));
-                start = None;
-                miss = 0;
+            let y0 = y.saturating_sub(1);
+            let y1 = (y + 1).min(h - 1);
+            let x0 = x.saturating_sub(1);
+            let x1 = (x + 1).min(w - 1);
+            'outer: for ny in y0..=y1 {
+                for nx in x0..=x1 {
+                    if src[(ny * w + nx) as usize] {
+                        mask[i] = true;
+                        break 'outer;
+                    }
+                }
             }
         }
     }
-    if let Some(s) = start {
-        out.push((s, h - 1 - miss));
-    }
-    out
 }
 
-// 带内列投影聚竖边：带高 thr 以上的列，允许 2 列断续桥接
-fn bars(mask: &[bool], w: u32, y0: u32, y1: u32, thr: u32) -> Vec<(u32, u32)> {
+struct Comp {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+    area: u32,
+    pixels: Vec<u32>,
+}
+
+// 8 连通域标记：返回每个域的包围盒、像素数与像素列表
+//（栈式 DFS，1080p 裁切帧 <10ms；像素列表供稠密包围盒剔除离群桥点）
+fn components(mask: &[bool], w: u32, h: u32) -> Vec<Comp> {
+    let mut seen = vec![false; (w * h) as usize];
     let mut out = Vec::new();
-    let mut start: Option<u32> = None;
-    let mut miss = 0u32;
-    for x in 0..w {
-        let c = (y0..=y1).filter(|&y| mask[(y * w + x) as usize]).count() as u32;
-        if c >= thr {
-            if start.is_none() {
-                start = Some(x);
-            }
-            miss = 0;
-        } else if start.is_some() {
-            miss += 1;
-            if miss > 2 {
-                out.push((start.unwrap(), x - miss));
-                start = None;
-                miss = 0;
+    let mut stack: Vec<u32> = Vec::new();
+    for start in 0..(w * h) as u32 {
+        if seen[start as usize] || !mask[start as usize] {
+            continue;
+        }
+        stack.clear();
+        stack.push(start);
+        seen[start as usize] = true;
+        let (mut x0, mut y0, mut x1, mut y1, mut area) =
+            (start % w, start / w, start % w, start / w, 0u32);
+        let mut pixels: Vec<u32> = Vec::new();
+        while let Some(p) = stack.pop() {
+            area += 1;
+            pixels.push(p);
+            let (px, py) = (p % w, p / w);
+            x0 = x0.min(px);
+            x1 = x1.max(px);
+            y0 = y0.min(py);
+            y1 = y1.max(py);
+            let dy0 = py.saturating_sub(1);
+            let dy1 = (py + 1).min(h - 1);
+            let dx0 = px.saturating_sub(1);
+            let dx1 = (px + 1).min(w - 1);
+            for ny in dy0..=dy1 {
+                for nx in dx0..=dx1 {
+                    let q = ny * w + nx;
+                    if !seen[q as usize] && mask[q as usize] {
+                        seen[q as usize] = true;
+                        stack.push(q);
+                    }
+                }
             }
         }
-    }
-    if let Some(s) = start {
-        out.push((s, w - 1 - miss));
+        out.push(Comp { x0, y0, x1, y1, area, pixels });
     }
     out
 }
 
-// 带内收紧上下边框行：该框横向范围内 mask 覆盖 >= 55% 的首/末行
-fn refine_y(mask: &[bool], w: u32, x0: u32, x1: u32, y0: u32, y1: u32) -> Option<(u32, u32)> {
-    let need = (((x1 - x0 + 1) as f32) * 0.55) as u32;
-    let count = |y: u32| (x0..=x1).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
-    let top = (y0..=y1).find(|&y| count(y) >= need)?;
-    let bottom = (y0..=y1).rev().find(|&y| count(y) >= need)?;
-    (bottom > top).then_some((top, bottom))
+// 稠密包围盒：按行/列统计域内像素数，剔除稀疏散点（边框晕点经膨胀与环黏连，
+// 会把原始 bbox 撑大数 px，环不贴边后边框带采样必采空——旧样张框2 实测 bbox
+// 上沿比可见环高 5px）。阈值 = max(5, 跨度/8)：环的边框行/列计数 ≥2×边框厚，
+// 桥点行/列只有 1~4 个像素。
+fn dense_bbox(comp: &Comp, w: u32) -> Option<(u32, u32, u32, u32)> {
+    let bw = comp.x1 - comp.x0 + 1;
+    let bh = comp.y1 - comp.y0 + 1;
+    let thr_x = (bw / 8).max(5);
+    let thr_y = (bh / 8).max(5);
+    let mut rows = vec![0u32; bh as usize];
+    let mut cols = vec![0u32; bw as usize];
+    for &p in &comp.pixels {
+        rows[(p / w - comp.y0) as usize] += 1;
+        cols[(p % w - comp.x0) as usize] += 1;
+    }
+    let y0 = rows.iter().position(|&c| c >= thr_y)? as u32 + comp.y0;
+    let y1 = rows.iter().rposition(|&c| c >= thr_y)? as u32 + comp.y0;
+    let x0 = cols.iter().position(|&c| c >= thr_x)? as u32 + comp.x0;
+    let x1 = cols.iter().rposition(|&c| c >= thr_x)? as u32 + comp.x0;
+    Some((x0, y0, x1, y1))
 }
 
 // 4 连框的相对几何校验：尺寸相近、近正方形、同一行、节距均匀。
@@ -388,7 +462,7 @@ fn validate_quad(win: &[Rect; 4], img: &RgbaImage) -> Option<[Rect; 4]> {
     }
     let side = wmax.max(hmax) as f32;
     let cy0 = (win[0].y + win[0].h / 2) as f32;
-    for r in win.iter() {
+    for (_k, r) in win.iter().enumerate() {
         if ((r.y + r.h / 2) as f32 - cy0).abs() > 0.35 * side {
             return None;
         }
@@ -409,7 +483,7 @@ fn validate_quad(win: &[Rect; 4], img: &RgbaImage) -> Option<[Rect; 4]> {
     if pmax > pmin * 4 / 3 {
         return None;
     }
-    for &p in pitches.iter() {
+    for (_i, &p) in pitches.iter().enumerate() {
         if !(0.25..=0.75).contains(&(win[0].w as f32 / p as f32)) {
             return None;
         }
@@ -467,24 +541,22 @@ fn ring_contrast(img: &RgbaImage, r: Rect) -> bool {
     edge.sort_unstable();
     inner.sort_unstable();
     let e = edge[edge.len() * 8 / 10];
-    e >= inner[inner.len() / 2] + 20
+    let i = inner[inner.len() / 2];
+    e >= i + 20
 }
 
-// 边框反馈色：边框带丢掉最暗 40%（与暗底混合的抗锯齿外沿）后取中位色 → 色相 →
-// 红/黄/绿。彩度不足 = 白灰边框（新局尚未提交反馈色）→ null。
+// 边框反馈色：边框带丢掉最暗 40%（与暗底混合的抗锯齿外沿）后取亮度中位样本的
+// 整体颜色 → 色相 → 红/黄/绿。必须是「中位样本」而非逐通道中位数——后者会拼出
+// 画面里不存在的颜色（v1.2.8 回归：黄框逐通道中位 (134,140,130) diff=10 被判
+// 白灰，实际像素 (134,140,105) h=87 是标准黄）。彩度不足 = 白灰边框（新局尚未
+// 提交反馈色）→ null。
 fn border_color(img: &RgbaImage, rect: Rect) -> Option<usize> {
     let mut samples = border_band(img, rect);
     if samples.is_empty() {
         return None;
     }
     samples.sort_by_key(|p| luma(*p));
-    let keep = &samples[samples.len() * 2 / 5..];
-    let med = |f: fn(&(u8, u8, u8)) -> u8| -> u8 {
-        let mut v: Vec<u8> = keep.iter().map(f).collect();
-        v.sort_unstable();
-        v[v.len() / 2]
-    };
-    let (r, g, b) = (med(|p| p.0), med(|p| p.1), med(|p| p.2));
+    let (r, g, b) = samples[samples.len() * 2 / 5 + (samples.len() - samples.len() * 2 / 5) / 2];
     let mx = r.max(g).max(b);
     let mn = r.min(g).min(b);
     // 样张三框彩度 46/72/54，白灰边框理论值 <12
@@ -496,8 +568,8 @@ fn border_color(img: &RgbaImage, rect: Rect) -> Option<usize> {
         0 // 红：样张 (185,136,131) h=6
     } else if h < 95.0 {
         1 // 黄：样张 (152,158,112) h=67
-    } else if h < 205.0 {
-        2 // 绿/青：样张 (124,188,196) h=187
+    } else if h < 196.0 {
+        2 // 绿/青：样张 (124,188,196) h=187；上界 196 与面板深蓝底分界（见 is_colored_border）
     } else {
         return None; // 蓝紫（面板底色）不可能是反馈色
     };
@@ -982,8 +1054,33 @@ mod tests {
         }
     }
 
-    // 样张：1645×926 全屏实拍，「当前猜测」= 雷 风 风 风。
-    // 真值是 黄 绿 黄 红，不是早期文档写的「黄 黄 红 红」——依据：四个框边框逐像素
+    // 20261113 用户实拍（1080p 视频 t=94s 裁切区域）：四个符文框边框全彩
+    // （土=黄 风=红 雷=绿 水=红），旧样张全部判据应照常工作
+    #[test]
+    fn rune_scan_live_crop_20261113() {
+        let img = image::load_from_memory(include_bytes!(
+            "../tests/fixtures/level3-cipher-crop-20261113.jpg"
+        ))
+        .expect("样张解码失败")
+        .to_rgba8();
+        let rects = locate(&img).expect("实测裁切帧定位失败");
+        let mut runes = Vec::new();
+        let mut colors = Vec::new();
+        for (i, r) in rects.iter().enumerate() {
+            let color = border_color(&img, *r);
+            let rune = identify_rune(&img, *r);
+            println!("框{} rect=({},{},{}x{}) 符文={:?} 色={:?}", i, r.x, r.y, r.w, r.h,
+                rune.map(rune_name), color.map(color_name));
+            runes.push(rune.map(|v| rune_name(v).to_string()));
+            colors.push(color.map(|v| color_name(v).to_string()));
+        }
+        assert_eq!(runes, vec![Some("土".into()), Some("风".into()), Some("雷".into()), Some("水".into())]);
+        // 边框色实测（逐框最亮边框像素）：土 (241,255,176) h=71 黄 ·
+        // 风 (205,156,162) h=353 红 · 雷 (239,255,180) h=73 黄 · 水 (199,157,161) h=354 红
+        assert_eq!(colors, vec![Some("黄".into()), Some("红".into()), Some("黄".into()), Some("红".into())]);
+    }
+
+    // 样张：1645×926 全屏实拍，「当前猜测」= 雷 风 风 风。    // 真值是 黄 绿 黄 红，不是早期文档写的「黄 黄 红 红」——依据：四个框边框逐像素
     // 采样（四边中段、去掉最暗 40% 的抗锯齿外沿）中位色分别为
     //   (152,158,112) h=67 黄 · (124,188,196) h=187 青绿 · (124,135,111) h=87 黄 · (185,136,131) h=6 红
     // 第 2 框青色通道 B=196 明显高于 R=124，不可能是黄；且「雷风风风 + 黄绿黄红」在

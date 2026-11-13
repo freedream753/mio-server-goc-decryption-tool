@@ -12,6 +12,9 @@ pub fn screenshot(x: i32, y: i32) -> Result<(), String> {
         let info = screen.display_info;
         info!("Screen: {:?}", info);
         if info.x == x && info.y == y {
+            // 记录本次截图覆盖显示器的全局原点：全局裁切模式把框选的图内
+            // 坐标换算成全局物理像素时依赖它（crop_selected 读取）
+            crate::window::set_shot_origin(x, y);
             let handle = APP.get().ok_or("App not initialized")?;
             let mut app_cache_dir_path = cache_dir().ok_or("Get Cache Dir Failed")?;
             app_cache_dir_path.push(&handle.config().tauri.bundle.identifier);

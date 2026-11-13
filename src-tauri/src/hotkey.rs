@@ -1,8 +1,46 @@
 use crate::config::{get, set};
 use crate::runes::rune_scan;
+use crate::wave::wave_scan;
 use crate::APP;
 use log::{error, info, warn};
 use tauri::{AppHandle, GlobalShortcutManager};
+
+// 按热键名选 handler：第一关波形校准走 wave_scan，西蒙走开始/停止录制切换，其余走符文识别
+fn handler_for(name: &str) -> fn() {
+    match name {
+        "hotkey_wave_scan" => wave_scan,
+        "hotkey_simon" => crate::simon::simon_toggle,
+        _ => rune_scan,
+    }
+}
+
+// 各热键的默认键位（未配置过时写入）：Alt+X 波形校准 / Alt+C 西蒙录制 / Alt+V 解密识别
+fn default_key(name: &str) -> &'static str {
+    match name {
+        "hotkey_wave_scan" => "Alt+X",
+        "hotkey_simon" => "Alt+C",
+        _ => "Alt+V",
+    }
+}
+
+// v1.2.7 默认键位轮换（校准 V→X、西蒙 X→C、解密 C→V）：已持久化旧默认值的
+// 配置一次性迁移到新默认，避免老用户按键不变以为改动没生效。用户自定义过的
+// 键位（≠旧默认）不动。迁移是幂等的：写入新值后下次启动不再命中旧默认。
+fn migrate_default_hotkeys() {
+    const MIGRATIONS: [(&str, &str, &str); 3] = [
+        // (配置名, 旧默认, 新默认)
+        ("hotkey_wave_scan", "Alt+V", "Alt+X"),
+        ("hotkey_simon", "Alt+X", "Alt+C"),
+        ("hotkey_ocr_recognize", "Alt+C", "Alt+V"),
+    ];
+    for (name, old, new) in MIGRATIONS {
+        let stored = get(name).and_then(|v| v.as_str().map(|s| s.to_string()));
+        if stored.as_deref() == Some(old) {
+            set(name, new);
+            info!("Hotkey default migrated: {} {} -> {}", name, old, new);
+        }
+    }
+}
 
 fn register<F>(app_handle: &AppHandle, name: &str, handler: F, key: &str) -> Result<(), String>
 where
@@ -13,9 +51,10 @@ where
             match get(name) {
                 Some(v) => v.as_str().unwrap().to_string(),
                 None => {
-                    // 未配置过热键时写入默认值（左 Alt+C，Windows 全局热键不区分左右 Alt）
-                    set(name, "Alt+C");
-                    "Alt+C".to_string()
+                    // 未配置过热键时写入默认值（Windows 全局热键不区分左右修饰键）
+                    let def = default_key(name);
+                    set(name, def);
+                    def.to_string()
                 }
             }
         } else {
@@ -43,10 +82,18 @@ where
 // Register global shortcuts
 pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
     let app_handle = APP.get().unwrap();
+    if shortcut == "all" {
+        // 默认键位轮换的一次性迁移，必须在读取配置注册之前执行
+        migrate_default_hotkeys();
+    }
     match shortcut {
         "hotkey_ocr_recognize" => register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?,
+        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", wave_scan, "")?,
+        "hotkey_simon" => register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "")?,
         "all" => {
             register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?;
+            register(app_handle, "hotkey_wave_scan", wave_scan, "")?;
+            register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "")?;
         }
         _ => {}
     }
@@ -60,6 +107,8 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
         "hotkey_ocr_recognize" => {
             register(app_handle, "hotkey_ocr_recognize", rune_scan, shortcut)?
         }
+        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", wave_scan, shortcut)?,
+        "hotkey_simon" => register(app_handle, "hotkey_simon", crate::simon::simon_toggle, shortcut)?,
         _ => {}
     }
     Ok(())
@@ -85,7 +134,8 @@ pub fn update_shortcut(name: &str, shortcut: String) -> Result<(), String> {
     if !old.is_empty() {
         let _ = manager.unregister(&old);
     }
-    match manager.register(&new_key, rune_scan) {
+    let handler = handler_for(name);
+    match manager.register(&new_key, handler) {
         Ok(()) => {
             set(name, new_key.clone());
             info!("Hotkey updated: {} -> {} for {}", old, new_key, name);
@@ -94,7 +144,7 @@ pub fn update_shortcut(name: &str, shortcut: String) -> Result<(), String> {
         Err(e) => {
             // 回滚：重新注册旧键，保证本会话热键不丢失
             if !old.is_empty() {
-                if let Err(re) = manager.register(&old, rune_scan) {
+                if let Err(re) = manager.register(&old, handler) {
                     error!("Hotkey rollback failed for {}: {:?}", old, re);
                 }
             }

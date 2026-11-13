@@ -43,7 +43,6 @@ pub fn tray_event_handler<'a>(app: &'a AppHandle, event: SystemTrayEvent) {
         SystemTrayEvent::LeftClick { .. } => on_tray_click(),
         SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
             "ocr_recognize" => on_ocr_recognize_click(),
-            "runes" => crate::window::rune_window(),
             "config" => on_config_click(),
             "view_log" => on_view_log_click(app),
             "restart" => on_restart_click(app),
@@ -108,10 +107,9 @@ fn tray_menu_en() -> tauri::SystemTrayMenu {
     let quit = CustomMenuItem::new("quit", "Quit");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
-        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
-        
+
         .add_item(view_log)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(restart)
@@ -126,10 +124,9 @@ fn tray_menu_zh_cn() -> tauri::SystemTrayMenu {
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
-        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
-        
+
         .add_item(view_log)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(restart)
@@ -144,10 +141,9 @@ fn tray_menu_zh_tw() -> tauri::SystemTrayMenu {
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)
-        .add_item(CustomMenuItem::new("runes", "Runes / 四位符文解密"))
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
-        
+
         .add_item(view_log)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(restart)

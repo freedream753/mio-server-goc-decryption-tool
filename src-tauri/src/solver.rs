@@ -7,6 +7,12 @@ use image::DynamicImage;
 use log::info;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+// 缓存截图文件的磁盘 IO 互斥：符文（SCAN_IN_FLIGHT）与波形（WAVE_IN_FLIGHT）两
+// 管线的单飞保护互相独立，但共用 pot_screenshot_full.png，Alt+V 识别进行中按
+// Alt+X 会交叉写读同一 PNG（写坏/读到对方的帧）。所有缓存截图 IO 在此串行化。
+pub static SHOT_IO: Mutex<()> = Mutex::new(());
 
 // 缓存文件绝对路径：<cache>/<bundle identifier>/<name>
 pub fn cache_file(name: &str) -> Result<PathBuf, String> {
@@ -15,10 +21,40 @@ pub fn cache_file(name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(&app.config().tauri.bundle.identifier).join(name))
 }
 
-// 抓鼠标所在显示器的全屏图，写入 pot_screenshot_full.png
+// 裁切模式（v1.2.7）：把全局裁切区域（全局物理像素）与当前显示器截图求交集裁剪。
+// 未开启裁切或无交集（裁切区在另一块屏）时原样返回，保证管线行为可预期。
+fn apply_crop_region(img: image::RgbaImage, origin_x: i32, origin_y: i32) -> image::RgbaImage {
+    let (rx, ry, rw, rh) = match crate::window::crop_region() {
+        Some(v) => v,
+        None => return img,
+    };
+    let (dw, dh) = (img.width() as i32, img.height() as i32);
+    let x0 = (rx).max(origin_x);
+    let y0 = (ry).max(origin_y);
+    let x1 = (rx + rw as i32).min(origin_x + dw);
+    let y1 = (ry + rh as i32).min(origin_y + dh);
+    if x1 <= x0 || y1 <= y0 {
+        info!(
+            "[solver] 裁切区域 ({},{},{},{}) 与当前显示器无交集，本帧不裁剪",
+            rx, ry, rw, rh
+        );
+        return img;
+    }
+    image::imageops::crop_imm(
+        &img,
+        (x0 - origin_x) as u32,
+        (y0 - origin_y) as u32,
+        (x1 - x0) as u32,
+        (y1 - y0) as u32,
+    )
+    .to_image()
+}
+
+// 抓鼠标所在显示器的全屏图，写入 pot_screenshot_full.png。
+// v1.2.7 起裁切模式生效时只写入框选区域（交集裁剪）
 pub fn capture_fullscreen() -> Result<(), String> {
     use mouse_position::mouse_position::Mouse;
-    use screenshots::{Compression, Screen};
+    use screenshots::Screen;
 
     let (mx, my) = match Mouse::get_mouse_position() {
         Mouse::Position { x, y } => (x, y),
@@ -31,11 +67,46 @@ pub fn capture_fullscreen() -> Result<(), String> {
         let (dw, dh) = (d.width as i32, d.height as i32);
         if mx >= dx && my >= dy && mx < dx + dw && my < dy + dh {
             let img = screen.capture().map_err(|e| e.to_string())?;
-            let buf = img.to_png(Compression::Fast).map_err(|e| e.to_string())?;
+            let raw = image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().clone())
+                .ok_or_else(|| "截图缓冲尺寸不符".to_string())?;
+            let cropped = apply_crop_region(raw, dx, dy);
+            let buf = to_png(&DynamicImage::ImageRgba8(cropped))?;
             let path = cache_file("pot_screenshot_full.png")?;
+            let _io = SHOT_IO.lock().unwrap();
             std::fs::write(&path, buf).map_err(|e| e.to_string())?;
             info!("[solver] 全屏截图完成: {:?}", path);
             return Ok(());
+        }
+    }
+    Err(format!("mouse monitor not found: {},{}", mx, my))
+}
+
+// 抓鼠标所在显示器的全屏图，直接返回内存 RGBA（不落盘）。
+// 供高频轮询管线（西蒙符印录制）复用。screenshots 0.7.2 的 Image 内部已是
+// 转换好的 RGBA（win32 路径经 Image::from_bgra 转换，alpha=255），直接按长度
+// 校验取用——不再经 PNG 编码+解码兜圈子（旧写法一帧 2560x1440 要多花
+// ~300-500ms，把西蒙录制实际采样周期从 200ms 拖到 600ms+，游戏符号 ~0.5s
+// 的亮起闪现在两帧滞回确认之间结束，一步都录不上：v1.2.4 修复的根因）。
+pub fn capture_monitor_to_mem() -> Result<image::RgbaImage, String> {
+    use mouse_position::mouse_position::Mouse;
+    use screenshots::Screen;
+
+    let (mx, my) = match Mouse::get_mouse_position() {
+        Mouse::Position { x, y } => (x, y),
+        Mouse::Error => (0, 0),
+    };
+    let screens = Screen::all().map_err(|e| e.to_string())?;
+    for screen in screens {
+        let d = screen.display_info;
+        let (dx, dy) = (d.x, d.y);
+        let (dw, dh) = (d.width as i32, d.height as i32);
+        if mx >= dx && my >= dy && mx < dx + dw && my < dy + dh {
+            let img = screen.capture().map_err(|e| e.to_string())?;
+            let (w, h) = (img.width(), img.height());
+            let raw = img.rgba().clone();
+            let img = image::RgbaImage::from_raw(w, h, raw).ok_or_else(|| "截图缓冲尺寸不符".into());
+            // 裁切模式生效时只保留框选区域（高频轮询管线同样受益：图更小、检测更快）
+            return img.map(|v| apply_crop_region(v, dx, dy));
         }
     }
     Err(format!("mouse monitor not found: {},{}", mx, my))
@@ -47,6 +118,7 @@ pub fn load_screenshot(name: &str) -> Result<image::RgbaImage, String> {
     if !path.exists() {
         return Err("截图缓存不存在".into());
     }
+    let _io = SHOT_IO.lock().unwrap();
     let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let reader = image::ImageReader::new(std::io::BufReader::new(file))
         .with_guessed_format()
@@ -80,7 +152,8 @@ pub mod ocr {
     use windows::core::{Interface, HSTRING};
     use windows::Globalization::Language;
     use windows::Graphics::Imaging::BitmapDecoder;
-    use windows::Media::Ocr::OcrEngine;
+    // 引擎类型对外可见（转轮模块测试需要命名它）
+    pub use windows::Media::Ocr::OcrEngine;
     use windows::Storage::Streams::{
         DataWriter, InMemoryRandomAccessStream, IOutputStream, IRandomAccessStream,
     };
@@ -137,6 +210,7 @@ pub mod ocr {
 pub mod ocr {
     // 非 Windows 平台占位：管线不可用，调用方降级为字形模板匹配
     pub struct Engine;
+    pub type OcrEngine = Engine;
     pub fn zh_engine() -> Option<Engine> {
         None
     }

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Card, CardBody, Link } from '@nextui-org/react';
+import { Card, CardBody, Chip, Link } from '@nextui-org/react';
 import { useTranslation } from 'react-i18next';
+import { version } from '../../../../../package.json';
 
 // 原项目仓库（GPL-3.0）
 const UPSTREAM_REPO = 'https://github.com/pot-app/pot-desktop';
@@ -22,7 +23,18 @@ export default function About() {
                             draggable={false}
                         />
                         <div>
-                            <h2 className='text-xl font-bold'>{t('config.about.name')}</h2>
+                            <h2 className='text-xl font-bold'>
+                                {t('config.about.name')}
+                                {/* 版本号标识：与 package.json / tauri.conf.json 三处同步 */}
+                                <Chip
+                                    size='sm'
+                                    variant='flat'
+                                    color='primary'
+                                    className='ml-[8px] align-middle font-mono'
+                                >
+                                    v{version}
+                                </Chip>
+                            </h2>
                             <p className='text-sm text-default-500'>{t('config.about.desc')}</p>
                         </div>
                     </div>

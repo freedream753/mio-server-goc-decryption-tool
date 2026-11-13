@@ -1,7 +1,7 @@
 import { codes } from './runes.js';
 
-export function analyze(solver, history, spent = 0) {
-    if (!Number.isInteger(spent) || spent < 0 || spent > 3 || history.length + spent > 4) {
+export function analyze(solver, history) {
+    if (history.length > 4) {
         throw new Error('总提交次数不能超过四次。');
     }
     let candidates = codes.map((_, i) => i);
@@ -14,7 +14,7 @@ export function analyze(solver, history, spent = 0) {
         candidates = candidates.filter(i => solver.matrix[guess][i] === result);
         solved = result === 80;
     }
-    const turns = 4 - spent - history.length;
+    const turns = 4 - history.length;
     return {
         count: candidates.length, turns, solved: solved && candidates.length > 0,
         guess: solved ? null : solver.choose(candidates, turns),
