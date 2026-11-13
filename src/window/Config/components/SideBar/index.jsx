@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { MdKeyboardAlt } from 'react-icons/md';
 import { Button } from '@nextui-org/react';
 import React from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
 
 export default function SideBar() {
     const { t } = useTranslation();
@@ -17,10 +16,6 @@ export default function SideBar() {
 
     return (
         <div className='mx-[12px] overflow-y-auto'>
-            <Button fullWidth size='lg' className='mb-[5px]' color='primary'
-                onPress={() => invoke('rune_window').catch(console.error)}>
-                四位符文解密
-            </Button>
             <Button
                 fullWidth
                 size='lg'
