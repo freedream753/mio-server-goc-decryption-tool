@@ -53,6 +53,8 @@ export const useConfig = (key, defaultValue, options = {}) => {
             unlisten.then((f) => {
                 f();
             });
+            // 窗口销毁前把仍在防抖等待中、尚未落盘的配置立即写入 store
+            syncToStore.flush();
         };
     }, []);
 

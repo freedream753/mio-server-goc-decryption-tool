@@ -101,7 +101,16 @@ export default function General() {
                                 value={serverPort}
                                 labelPlacement='outside-left'
                                 onValueChange={(v) => {
-                                    if (parseInt(v) !== serverPort) {
+                                    // 空串：不更新 state、不触发 toast 与写盘，避免端口被写成 0
+                                    if (v === '') {
+                                        return;
+                                    }
+                                    const port = parseInt(v);
+                                    // 非法输入直接忽略
+                                    if (isNaN(port)) {
+                                        return;
+                                    }
+                                    if (port !== serverPort) {
                                         if (timer) {
                                             clearTimeout(timer);
                                         }
@@ -112,14 +121,12 @@ export default function General() {
                                             });
                                         }, 1000);
                                     }
-                                    if (v === '') {
-                                        setServerPort(0);
-                                    } else if (parseInt(v) > 65535) {
+                                    if (port > 65535) {
                                         setServerPort(65535);
-                                    } else if (parseInt(v) < 0) {
-                                        setServerPort(0);
+                                    } else if (port < 1) {
+                                        setServerPort(1);
                                     } else {
-                                        setServerPort(parseInt(v));
+                                        setServerPort(port);
                                     }
                                 }}
                                 className='max-w-[100px]'

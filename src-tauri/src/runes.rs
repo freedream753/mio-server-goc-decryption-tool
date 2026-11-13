@@ -20,6 +20,11 @@ use std::sync::Mutex;
 const FULL_SHOT: &str = "pot_screenshot_full.png";
 const CUT_SHOT: &str = "pot_screenshot_cut.png";
 
+// 符文名表：0=空 1=火 2=水 3=风 4=土 5=雷（与 src/utils/runes.js 的 symbols 同序）。
+// rune_name 与 rune_from_text 共用这一份（原先两处各自内联、内容一致）；注意与
+// simon.rs 的 SIMON_NAMES 语义不同（西蒙游戏是「火水风土雷光」六色，无「空」）
+const RUNE_NAMES: [&str; 6] = ["空", "火", "水", "风", "土", "雷"];
+
 // 最近一次扫描结果：结果窗口前端挂载后经 get_rune_scan 拉取，
 // 避免 emit 早于前端监听注册时结果丢失（与旧管线同一竞态）
 pub static RUNE_SCAN: Mutex<Option<Value>> = Mutex::new(None);
@@ -145,7 +150,9 @@ fn payload(ok: bool, slots: &[Slot], source: &str, msg: &str) -> Value {
 }
 
 fn finish(payload: Value) {
-    *RUNE_SCAN.lock().unwrap() = Some(payload.clone());
+    // 锁中毒容错：某次扫描线程 panic 后锁永久中毒，unwrap 会让后续所有扫描失败；
+    // unwrap_or_else 直接取回守门数据继续写（与 simon.rs 的 steps_lock 同策略）
+    *RUNE_SCAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(payload.clone());
     if let Some(app) = APP.get().cloned() {
         let _ = app.run_on_main_thread(move || {
             result_window_notify(payload);
@@ -155,8 +162,7 @@ fn finish(payload: Value) {
 }
 
 fn rune_name(i: usize) -> &'static str {
-    const NAMES: [&str; 6] = ["空", "火", "水", "风", "土", "雷"];
-    NAMES.get(i).copied().unwrap_or("?")
+    RUNE_NAMES.get(i).copied().unwrap_or("?")
 }
 
 fn color_name(i: usize) -> &'static str {
@@ -462,12 +468,11 @@ fn validate_quad(win: &[Rect; 4], img: &RgbaImage) -> Option<[Rect; 4]> {
     }
     let side = wmax.max(hmax) as f32;
     let cy0 = (win[0].y + win[0].h / 2) as f32;
-    for (_k, r) in win.iter().enumerate() {
+    // 便宜的算术校验（同行/节距）全部排在逐像素采样之前：find_quad 是 C(n,4)
+    // 组合循环，ring_contrast 的逐像素开销只应花在通过全部算术校验的组合上
+    //（校验彼此独立取与，调顺序不改变判定结果）
+    for r in win.iter() {
         if ((r.y + r.h / 2) as f32 - cy0).abs() > 0.35 * side {
-            return None;
-        }
-        // 边框必须比框内亮：实心按钮/图标块在此被剔除
-        if !ring_contrast(img, *r) {
             return None;
         }
     }
@@ -485,6 +490,12 @@ fn validate_quad(win: &[Rect; 4], img: &RgbaImage) -> Option<[Rect; 4]> {
     }
     for (_i, &p) in pitches.iter().enumerate() {
         if !(0.25..=0.75).contains(&(win[0].w as f32 / p as f32)) {
+            return None;
+        }
+    }
+    // 边框必须比框内亮：实心按钮/图标块在此被剔除（最贵的逐像素校验放最后）
+    for r in win.iter() {
+        if !ring_contrast(img, *r) {
             return None;
         }
     }
@@ -873,10 +884,9 @@ fn match_template(sig: &[[f32; GLYPH]; GLYPH]) -> (usize, f32, f32) {
 
 // OCR 文本 → 6 字集合中的唯一下标（多字/集合外字符一律丢弃）
 fn rune_from_text(text: &str) -> Option<usize> {
-    const NAMES: [&str; 6] = ["空", "火", "水", "风", "土", "雷"];
     let hits: Vec<usize> = text
         .chars()
-        .filter_map(|c| NAMES.iter().position(|n| n.starts_with(c)))
+        .filter_map(|c| RUNE_NAMES.iter().position(|n| n.starts_with(c)))
         .collect();
     if hits.len() == 1 {
         Some(hits[0])
@@ -918,10 +928,12 @@ fn ocr_candidates(img: &RgbaImage, g: &Glyph) -> Vec<Vec<u8>> {
     let white = image::Rgba([255, 255, 255, 255]);
     if let Ok(png) = to_png(&crate::solver::pad_canvas(&norm, 16, white)) {
         out.push(png.clone());
-        // 候选 2：同一极性的硬二值（去掉抗锯齿灰阶，笔画更实）
+        // 候选 2：同一极性的硬二值（去掉抗锯齿灰阶，笔画更实）。
+        // 旧实现误反相，WinOCR 偏好黑字白底；norm 已是黑字白底，保持同极性：
+        // 背景(≥128)→白 255、笔画(<128)→黑 0
         let mut bin = norm.to_rgba8();
         for p in bin.pixels_mut() {
-            let v = if p[0] >= 128 { 0u8 } else { 255u8 };
+            let v = if p[0] >= 128 { 255u8 } else { 0u8 };
             *p = image::Rgba([v, v, v, 255]);
         }
         if let Ok(png) = to_png(&crate::solver::pad_canvas(

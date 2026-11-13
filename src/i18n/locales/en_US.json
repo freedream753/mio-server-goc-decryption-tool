@@ -191,6 +191,58 @@
             "retry": "Try again",
             "delete_newline": "Delete Newline",
             "translate_back": "Translation back to the original"
+        },
+        "result": {
+            "title": "GOC Solver v{{version}}",
+            "drag": "Drag window",
+            "close": "Close",
+            "crop_off": "Exit crop mode: resume full-screen recognition",
+            "crop_on": "Crop mode: select a screen area; Wave/Simon/Cipher will only recognize inside it",
+            "rune_scan_failed": "Recognition failed",
+            "tab": {
+                "wave": "Wave",
+                "simon": "Simon",
+                "cipher": "Cipher"
+            },
+            "wave": {
+                "desc": "Press Alt+X or click \"Scan\" to solve the four sliders, then copy them; if the canvas is covered and recognition fails, click \"Select\" to circle the waveform canvas manually. With \"Crop mode\" enabled next to the title, only the framed area is recognized.",
+                "scan": "Scan",
+                "select": "Select",
+                "preview_title": "Recognized target curve of the waveform canvas (identical to the in-game one)",
+                "amp": "Amplitude",
+                "freq": "Frequency",
+                "phase": "Phase",
+                "off": "Offset"
+            },
+            "simon": {
+                "desc": "Click a level button (or press Alt+C) to start recording; lit symbols are captured automatically. Recording pauses at 4/5/6 steps — click the in-game symbols in order. \"Free\" has no step limit; press it again to stop.",
+                "stop": "Stop recording",
+                "recording": "Recording {{current}}{{total}}…",
+                "level1": "Level 1",
+                "level2": "Level 2",
+                "level3": "Level 3",
+                "free": "Free",
+                "empty": "No records yet."
+            },
+            "cipher": {
+                "calculating": "Calculating the next guess…",
+                "ended": "All four guesses are used. Click \"New Game\".",
+                "turn": "Guess {{turn}} (copy it into the game):",
+                "worker_error": "Strategy calculation failed. Please close and reopen the window.",
+                "recognize": "Scan",
+                "new_game": "New Game",
+                "undo": "Undo",
+                "fix": "Fix",
+                "color_hint": "Click a block to cycle <green>green</green>/<red>red</red>/<yellow>yellow</yellow>, then click \"Fix\".",
+                "slot_hint": "Click to mark the feedback color: green → red → yellow",
+                "slot_color": "Currently {{color}}, click to change",
+                "unmarked": "Mark"
+            },
+            "color": {
+                "red": "red",
+                "yellow": "yellow",
+                "green": "green"
+            }
         }
     }
 }

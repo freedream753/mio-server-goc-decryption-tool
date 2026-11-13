@@ -1,7 +1,7 @@
 use crate::config::{get, set};
 use crate::runes::rune_scan;
 use crate::window::config_window;
-use log::info;
+use log::{info, warn};
 use tauri::CustomMenuItem;
 use tauri::GlobalShortcutManager;
 use tauri::SystemTrayEvent;
@@ -15,7 +15,11 @@ pub fn update_tray(app_handle: tauri::AppHandle, mut language: String, _copy_mod
 
     if language.is_empty() {
         language = match get("app_language") {
-            Some(v) => v.as_str().unwrap().to_string(),
+            // 配置可能被手改成非字符串：回退英文菜单，不 panic
+            Some(v) => v
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| "en".to_string()),
             None => {
                 set("app_language", "en");
                 "en".to_string()
@@ -56,7 +60,11 @@ pub fn tray_event_handler<'a>(app: &'a AppHandle, event: SystemTrayEvent) {
 #[cfg(target_os = "windows")]
 fn on_tray_click() {
     let event = match get("tray_click_event") {
-        Some(v) => v.as_str().unwrap().to_string(),
+        // 配置可能被手改成非字符串：回退默认行为（打开偏好设置），不 panic
+        Some(v) => v
+            .as_str()
+            .map(String::from)
+            .unwrap_or_else(|| "config".to_string()),
         None => {
             set("tray_click_event", "config");
             "config".to_string()
@@ -79,17 +87,31 @@ fn on_config_click() {
 }
 
 fn on_view_log_click(app: &AppHandle) {
+    use tauri::api::notification;
     use tauri::api::path::app_log_dir;
     let log_path = app_log_dir(&app.config()).unwrap();
-    tauri::api::shell::open(&app.shell_scope(), log_path.to_str().unwrap(), None).unwrap();
+    // 打开失败只告警 + 系统通知用户，不在托盘事件回调里 panic
+    if let Err(e) = tauri::api::shell::open(&app.shell_scope(), log_path.to_str().unwrap(), None) {
+        warn!("打开日志目录失败: {}", e);
+        let _ = notification::Notification::new(&app.config().tauri.bundle.identifier)
+            .title("GOC解题妙妙小工具")
+            .body("打开日志目录失败，请手动查看日志文件")
+            .show();
+    }
 }
 fn on_restart_click(app: &AppHandle) {
     info!("============== Restart App ==============");
     // 不能用 app.restart()：它先 spawn 新进程再退出旧进程，新进程会被
     // single_instance 插件判定为重复启动而自杀（旧进程尚未释放锁）。
     // 改为 spawn 自身并携带等待参数，新进程等旧实例完全退出后再初始化。
+    // --goc-restart-pid 带上旧进程（当前）PID，供新进程精确轮询退出，
+    // 替代新进程侧的固定 sleep（旧进程退出慢于固定时长时新进程会被
+    // single_instance 静默退出）。
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).arg("--goc-restart-wait").spawn();
+        let _ = std::process::Command::new(exe)
+            .arg("--goc-restart-wait")
+            .arg(format!("--goc-restart-pid={}", std::process::id()))
+            .spawn();
     }
     app.exit(0);
 }

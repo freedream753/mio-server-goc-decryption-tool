@@ -191,6 +191,58 @@
             "retry": "重试",
             "delete_newline": "删除换行",
             "translate_back": "翻译回原文"
+        },
+        "result": {
+            "title": "GOC妙妙小工具v{{version}}",
+            "drag": "拖动窗口",
+            "close": "关闭",
+            "crop_off": "取消裁切模式：恢复全屏识别",
+            "crop_on": "裁切模式：框选屏幕区域，之后校准/西蒙/解密只识别框内画面",
+            "rune_scan_failed": "识别失败",
+            "tab": {
+                "wave": "校准",
+                "simon": "西蒙",
+                "cipher": "解密"
+            },
+            "wave": {
+                "desc": "按 Alt+X 或点「识别」反推四个滑块位置，照抄即可；画布被遮挡识别失败时，点「框选」手动圈住波形画布。开启标题旁「裁切模式」后只识别框内画面。",
+                "scan": "识别",
+                "select": "框选",
+                "preview_title": "识别到的波形画布目标线（与游戏内完全同构）",
+                "amp": "振幅",
+                "freq": "频率",
+                "phase": "相位",
+                "off": "偏移"
+            },
+            "simon": {
+                "desc": "点关卡按钮（或按 Alt+C）开始录制，符号依次亮起会被自动记录；录满 4/5/6 步自动暂停，照顺序点击游戏符号。「自由」不限步数，再按一次停止。",
+                "stop": "停止录制",
+                "recording": "录制中 {{current}}{{total}}…",
+                "level1": "第一关",
+                "level2": "第二关",
+                "level3": "第三关",
+                "free": "自由",
+                "empty": "暂无记录。"
+            },
+            "cipher": {
+                "calculating": "正在计算下一步…",
+                "ended": "四次已用完，请点「新一局」。",
+                "turn": "第 {{turn}} 次猜测（照抄进游戏）：",
+                "worker_error": "策略计算失败，请关闭窗口后重新打开。",
+                "recognize": "识别",
+                "new_game": "新一局",
+                "undo": "撤回",
+                "fix": "修正",
+                "color_hint": "点方块循环切换 <green>绿</green>/<red>红</red>/<yellow>黄</yellow>，切好后点「修正」。",
+                "slot_hint": "点击标记反馈色：绿→红→黄循环",
+                "slot_color": "当前 {{color}}，点击切换",
+                "unmarked": "标色"
+            },
+            "color": {
+                "red": "红",
+                "yellow": "黄",
+                "green": "绿"
+            }
         }
     }
 }

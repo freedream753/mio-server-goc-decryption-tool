@@ -11,13 +11,21 @@ export default function WindowControl() {
     const [isMax, setIsMax] = useState(false);
 
     useEffect(() => {
-        listen('tauri://resize', async () => {
+        // 挂载时先查询一次当前最大化状态，避免按钮图标初始显示错误
+        appWindow.isMaximized().then(setIsMax);
+        // 保存取消监听函数，卸载时清理，避免监听泄漏
+        const unlisten = listen('tauri://resize', async () => {
             if (await appWindow.isMaximized()) {
                 setIsMax(true);
             } else {
                 setIsMax(false);
             }
         });
+        return () => {
+            unlisten.then((f) => {
+                f();
+            });
+        };
     }, []);
 
     return (

@@ -11,6 +11,11 @@ use window_shadows::set_shadow;
 // 框选用途派发：截图窗口 success 事件按此分发给符文识别("rune")或波形框选("wave")
 pub static SHOT_PURPOSE: Mutex<&'static str> = Mutex::new("rune");
 
+// 框选流程设置互斥：crop/wave 两个入口共用 SHOT_PURPOSE 单值与同一截图窗口，
+// 「设置用途 → 起线程拉框选窗」必须原子完成，并发入口会互相覆盖用途值导致
+// success 派发到错误管线。入口用 try_lock 抢锁，抢不到说明已有流程在设置中
+pub static PURPOSE_IO: Mutex<()> = Mutex::new(());
+
 // 最近一次框选区域（物理像素），截图窗口 cut_image 命令写入、
 // 波形框选（wave::on_region_selected）读取落定
 pub static LAST_CUT: Mutex<Option<(u32, u32, u32, u32)>> = Mutex::new(None);
@@ -361,7 +366,9 @@ pub fn crop_clear() {
     }
 }
 
-// 启动时恢复上次的裁切模式（配置持久化）：指示框重新浮现，区域继续生效
+// 启动时恢复上次的裁切模式（配置持久化）：指示框重新浮现，区域继续生效。
+// 区域必须与现存显示器相交才恢复：拔掉副屏后旧区域可能悬在虚空，
+// 直接恢复会让识别管线永远采集空区域
 pub fn restore_crop_region() {
     let parsed = get("crop_region").and_then(|v| {
         v.as_array().map(|a| {
@@ -371,13 +378,46 @@ pub fn restore_crop_region() {
         })
     });
     if let Some(a) = parsed {
-        // 只校验宽高为正；x/y 允许负值——左侧/上方副屏的全局坐标为负，
-        // crop_selected 落定的区域完全可能是负坐标
+        // 宽高须为正；x/y 允许负值——左侧/上方副屏的全局坐标为负，
+        // crop_selected 落定的区域完全可能是负坐标（不能用「非负」判断）
         if a.len() == 4 && a[2] > 0.0 && a[3] > 0.0 {
-            let region = (a[0] as i32, a[1] as i32, a[2] as u32, a[3] as u32);
-            *CROP_REGION.lock().unwrap() = Some(region);
-            info!("[crop] 已恢复裁切模式: {:?}", region);
-            show_crop_overlay(region);
+            // 用 i64 求交防溢出（配置可被手改成超大数值）
+            let (x, y, w, h) = (a[0] as i64, a[1] as i64, a[2] as i64, a[3] as i64);
+            // APP 可用时枚举现存显示器（物理坐标原点+尺寸）校验相交：
+            // 任一显示器满足 x < mx+mw && x+w > mx && y < my+mh && y+h > my 即可；
+            // APP 不可用（早于 setup）时保持原行为不拦截
+            let alive = match APP.get() {
+                Some(app) => {
+                    // tauri v1 的 available_monitors 在 Window 上（AppHandle 没有），
+                    // 且 daemon 窗口的枚举实测最稳定（见 get_current_monitor 注释）
+                    let daemon = app.get_window("daemon");
+                    match daemon.map(|w| w.available_monitors()) {
+                        Some(Ok(monitors)) => monitors.iter().any(|m| {
+                            let (mx, my) = (m.position().x as i64, m.position().y as i64);
+                            let (mw, mh) = (m.size().width as i64, m.size().height as i64);
+                            x < mx + mw && x + w > mx && y < my + mh && y + h > my
+                        }),
+                        // 窗口不存在/枚举失败时不拦截，保持原恢复行为
+                        _ => true,
+                    }
+                }
+                None => true,
+            };
+            if alive {
+                let region = (x as i32, y as i32, w as u32, h as u32);
+                *CROP_REGION
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(region);
+                info!("[crop] 已恢复裁切模式: {:?}", region);
+                show_crop_overlay(region);
+            } else {
+                warn!(
+                    "[crop] 已保存的裁切区域 {:?} 不在任何现存显示器内（对应副屏可能已拔出），丢弃",
+                    (x, y, w, h)
+                );
+                // 清掉失效配置，避免每次启动重复告警
+                set("crop_region", serde_json::Value::Null);
+            }
         }
     }
 }

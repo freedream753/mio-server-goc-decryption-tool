@@ -76,8 +76,18 @@ fn register_notification_aumid(identifier: String) {
 fn main() {
     // 重启流程：旧进程 spawn 自身（带 --goc-restart-wait）后退出。
     // 此处先等旧实例完全退出、释放 single_instance 锁与端口，再正常初始化。
+    // 固定 sleep 1500ms 在旧进程退出慢于 1.5s 时，新进程会被 single_instance
+    // 静默退出；带 --goc-restart-pid 时改为轮询旧进程退出（最多 15s），
+    // 无 PID 参数（旧版本遗留调用路径）保持原固定 sleep 兜底。
     if std::env::args().any(|arg| arg == "--goc-restart-wait") {
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let old_pid = std::env::args().find_map(|arg| {
+            arg.strip_prefix("--goc-restart-pid=")
+                .and_then(|v| v.parse::<u32>().ok())
+        });
+        match old_pid {
+            Some(pid) => wait_old_process_exit(pid),
+            None => std::thread::sleep(std::time::Duration::from_millis(1500)),
+        }
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, cwd| {
@@ -151,4 +161,51 @@ fn main() {
                 api.prevent_exit();
             }
         });
+}
+
+// Windows：按 PID 轮询旧进程退出。OpenProcess(PROCESS_SYNCHRONIZE) 拿句柄后
+// WaitForSingleObject 每 100ms 一轮，最多 15s；超时或句柄打不开（旧进程已退出）
+// 都照常继续启动，不阻塞在启动前。注意 windows 0.58 的 OpenProcess 返回
+// Result<HANDLE>，Err 即无效句柄（进程已退出/无权限），用 Ok 分支做非空校验。
+#[cfg(target_os = "windows")]
+fn wait_old_process_exit(pid: u32) {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
+    const MAX_WAIT_MS: u32 = 15_000;
+    let started = std::time::Instant::now();
+    loop {
+        let handle = match unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) } {
+            Ok(h) => h,
+            Err(_) => {
+                info!("Old process {} no longer openable, assume exited", pid);
+                return;
+            }
+        };
+        // WAIT_TIMEOUT = 仍在运行，继续下一轮；其余（WAIT_OBJECT_0 等）= 已结束
+        let wait = unsafe { WaitForSingleObject(handle, 100) };
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        if wait != WAIT_TIMEOUT {
+            info!("Old process {} exited", pid);
+            return;
+        }
+        if started.elapsed().as_millis() as u32 >= MAX_WAIT_MS {
+            warn!(
+                "Old process {} not exited within {}ms, continue startup",
+                pid, MAX_WAIT_MS
+            );
+            return;
+        }
+    }
+}
+
+// 非 Windows 平台无进程句柄可轮询，保持固定 sleep 兜底
+#[cfg(not(target_os = "windows"))]
+fn wait_old_process_exit(pid: u32) {
+    let _ = pid;
+    std::thread::sleep(std::time::Duration::from_millis(1500));
 }

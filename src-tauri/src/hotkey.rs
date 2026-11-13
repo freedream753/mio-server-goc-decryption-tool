@@ -3,7 +3,14 @@ use crate::runes::rune_scan;
 use crate::wave::wave_scan;
 use crate::APP;
 use log::{error, info, warn};
+use std::sync::Mutex;
 use tauri::{AppHandle, GlobalShortcutManager};
+
+// 全局热键注册/注销互斥锁：update_shortcut 的 unregister→register 序列非原子，
+// 与启动注册（register_shortcut）、前端单键注册并发交错时会互相覆盖，导致热键
+// 丢失或重复注册失败。所有触碰这批全局热键的入口统一在此锁内串行执行；锁被
+// panic 毒化时降级继续用（into_inner），不让单次故障永久卡死热键功能
+static HOTKEY_IO: Mutex<()> = Mutex::new(());
 
 // 按热键名选 handler：第一关波形校准走 wave_scan，西蒙走开始/停止录制切换，其余走符文识别
 fn handler_for(name: &str) -> fn() {
@@ -49,7 +56,12 @@ where
     let hotkey = {
         if key.is_empty() {
             match get(name) {
-                Some(v) => v.as_str().unwrap().to_string(),
+                // 配置文件可被用户手改成非字符串（数字/布尔等）：as_str 失败时
+                // 回退默认键位，不 panic
+                Some(v) => v
+                    .as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| default_key(name).to_string()),
                 None => {
                     // 未配置过热键时写入默认值（Windows 全局热键不区分左右修饰键）
                     let def = default_key(name);
@@ -82,6 +94,8 @@ where
 // Register global shortcuts
 pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
     let app_handle = APP.get().unwrap();
+    // 与 update_shortcut / 前端注册操作同一批全局热键：注册前先取互斥锁
+    let _io = HOTKEY_IO.lock().unwrap_or_else(|e| e.into_inner());
     if shortcut == "all" {
         // 默认键位轮换的一次性迁移，必须在读取配置注册之前执行
         migrate_default_hotkeys();
@@ -91,9 +105,25 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
         "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", wave_scan, "")?,
         "hotkey_simon" => register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "")?,
         "all" => {
-            register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?;
-            register(app_handle, "hotkey_wave_scan", wave_scan, "")?;
-            register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "")?;
+            // 逐个注册并收集失败项：任一热键被占用（与其他程序冲突）不得用 `?`
+            // 短路导致后续热键全部不注册。全部失败才返回 Err；部分失败时告警
+            // 列出失败的热键名+原因，返回 Ok 保证其余热键可用
+            let mut failures: Vec<String> = Vec::new();
+            if let Err(e) = register(app_handle, "hotkey_ocr_recognize", rune_scan, "") {
+                failures.push(format!("hotkey_ocr_recognize: {}", e));
+            }
+            if let Err(e) = register(app_handle, "hotkey_wave_scan", wave_scan, "") {
+                failures.push(format!("hotkey_wave_scan: {}", e));
+            }
+            if let Err(e) = register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "") {
+                failures.push(format!("hotkey_simon: {}", e));
+            }
+            if failures.len() == 3 {
+                return Err(failures.join("; "));
+            }
+            if !failures.is_empty() {
+                warn!("部分热键注册失败（其余热键已生效）: {}", failures.join("; "));
+            }
         }
         _ => {}
     }
@@ -103,6 +133,8 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), String> {
     let app_handle = APP.get().unwrap();
+    // 与启动注册 / update_shortcut 操作同一批全局热键，同样需互斥
+    let _io = HOTKEY_IO.lock().unwrap_or_else(|e| e.into_inner());
     match name {
         "hotkey_ocr_recognize" => {
             register(app_handle, "hotkey_ocr_recognize", rune_scan, shortcut)?
@@ -131,6 +163,9 @@ pub fn update_shortcut(name: &str, shortcut: String) -> Result<(), String> {
     if new_key == old {
         return Ok(());
     }
+    // unregister→register（含失败回滚重注）非原子：包进 HOTKEY_IO 与启动/
+    // 前端注册路径互斥，防止并发交错导致热键丢失
+    let _io = HOTKEY_IO.lock().unwrap_or_else(|e| e.into_inner());
     if !old.is_empty() {
         let _ = manager.unregister(&old);
     }

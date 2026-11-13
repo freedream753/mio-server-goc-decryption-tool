@@ -33,12 +33,12 @@
             "mn_mo": "蒙古語",
             "mn_cy": "蒙古語（西里爾字母）",
             "km": "高棉語",
-            "nb_no": "挪威語（書面語）",
-            "nn_no": "挪威語（新諾斯克）",
+            "nb_no": "書面挪威語",
+            "nn_no": "新挪威語",
+            "fa": "波斯語",
             "sv": "瑞典語",
             "pl": "波蘭語",
             "nl": "荷蘭語",
-            "fa": "波斯語",
             "uk": "烏克蘭語",
             "he": "希伯來語"
         },
@@ -46,46 +46,46 @@
             "general": {
                 "label": "一般設定",
                 "title": "一般設定",
-                "auto_start": "開機自動啟動",
+                "auto_start": "開機時啟動應用",
                 "check_update": "啟動時檢查更新",
                 "server_port": "監聽連接埠",
-                "server_port_change": "監聽連接埠已變更，請重新啟動應用程式以使變更生效",
-                "app_language": "應用程式語言",
-                "app_theme": "主題",
+                "server_port_change": "監聽連接埠已變更，重啟應用程式生效",
+                "app_language": "顯示語言",
+                "app_theme": "應用主題",
+                "app_font": "字型",
+                "app_fallback_font": "後備字型",
+                "font_size": {
+                    "10": "極小 (10px)",
+                    "12": "特小 (12px)",
+                    "14": "小 (14px)",
+                    "16": "標準 (16px)",
+                    "18": "大 (18px)",
+                    "20": "特大 (20px)",
+                    "24": "超大 (24px)",
+                    "title": "字型大小"
+                },
+                "default_font": "預設",
                 "theme": {
-                    "light": "淺色主題",
-                    "dark": "深色主題",
-                    "system": "系統主題"
+                    "light": "淺色",
+                    "dark": "深色",
+                    "system": "跟隨系統"
                 },
                 "transparent": "透明效果",
                 "tray_click_event": "系統列圖示點選事件",
                 "event": {
-                    "config": "偏好設定",
-                    "translate": "翻譯",
+                    "config": "開啟設定",
+                    "translate": "開啟翻譯視窗",
                     "disable": "停用",
                     "ocr_recognize": "文字辨識",
                     "ocr_translate": "截圖翻譯"
-                },
-                "app_font": "字型",
-                "app_fallback_font": "備用字型",
-                "font_size": {
-                    "10": "特小（10px）",
-                    "12": "非常小（12px）",
-                    "14": "小（14px）",
-                    "16": "標準（16px）",
-                    "18": "大（18px）",
-                    "20": "非常大（20px）",
-                    "24": "特大（24px）",
-                    "title": "字型大小"
-                },
-                "default_font": "預設"
+                }
             },
             "translate": {
                 "label": "翻譯設定",
                 "title": "翻譯設定",
                 "source_language": "原文語言",
                 "target_language": "譯文語言",
-                "second_language": "次要目標語言",
+                "second_language": "第二目標語言",
                 "auto_copy": "自動複製",
                 "source": "原文",
                 "target": "譯文",
@@ -96,12 +96,22 @@
                 "dynamic_translate": "動態翻譯",
                 "delete_newline": "自動刪除換行",
                 "remember_language": "記住目標語言",
+                "font_size": {
+                    "10": "非常小 (10px)",
+                    "12": "很小 (12px)",
+                    "14": "小 (14px)",
+                    "16": "標準 (16px)",
+                    "18": "大 (18px)",
+                    "20": "很大 (20px)",
+                    "24": "非常大 (24px)",
+                    "title": "字型大小"
+                },
                 "window_position": "視窗位置",
                 "mouse": "跟隨滑鼠",
                 "pre_state": "記住位置",
                 "remember_window_size": "記住視窗大小",
                 "close_on_blur": "失去焦點時關閉視窗",
-                "always_on_top": "視窗始終置頂",
+                "always_on_top": "視窗預設置頂",
                 "hide_source": "隱藏原文",
                 "hide_language": "隱藏語言區域",
                 "hide_window": "隱藏翻譯視窗",
@@ -112,17 +122,7 @@
                 "google": "Google",
                 "bing": "Bing",
                 "yandex": "Yandex",
-                "local": "本地",
-                "font_size": {
-                    "10": "非常小（10px）",
-                    "12": "很小（12px）",
-                    "14": "小（14px）",
-                    "16": "標準（16px）",
-                    "18": "大（18px）",
-                    "20": "很大（20px）",
-                    "24": "非常大（24px）",
-                    "title": "字型大小"
-                }
+                "local": "本地"
             },
             "hotkey": {
                 "label": "快速鍵設定",
@@ -135,7 +135,7 @@
                 "ocr_translate": "截圖翻譯",
                 "is_register": "該快速鍵已被註冊",
                 "success": "快速鍵註冊成功",
-                "set_hotkey": "按下設定快速鍵"
+                "set_hotkey": "按下按鍵設定快速鍵"
             },
             "history": {
                 "label": "歷史記錄",
@@ -147,57 +147,102 @@
                 "type": "服務類型",
                 "webdav": "WebDav",
                 "local": "本地",
+                "aliyun": "阿里雲網盤",
                 "webdav_url": "WebDav 網址",
                 "username": "使用者名稱",
                 "password": "密碼",
+                "logout": "登出",
+                "aliyun_login_first": "請先掃描 QR Code 登入。",
+                "login_success": "登入成功",
                 "backup": "備份",
                 "restore": "還原",
                 "list": "備份列表",
                 "load_success": "載入備份成功",
                 "backup_success": "備份成功",
-                "empty": "您尚未進行備份",
-                "aliyun_login_first": "請先掃描 QR Code 登入。",
-                "login_success": "登入成功",
-                "aliyun": "阿里雲網盤",
-                "logout": "登出"
+                "empty": "您尚未進行備份"
             },
             "about": {
-                "label": "關於",
-                "title": "關於應用程式",
-                "website": "官方網站",
-                "github": "GitHub",
-                "feedback": "問題回饋",
-                "issue": "問題回報",
-                "email": "電子郵件",
-                "community": "社群交流",
-                "check_update": "檢查更新",
-                "view_log": "檢視記錄檔",
-                "view_config": "檢視設定",
-                "qq_channel": "QQ 頻道",
-                "qq_group": "QQ 群組",
-                "telegram": "Telegram",
-                "discussion": "Github 討論區"
+                "label": "關於專案",
+                "title": "關於專案",
+                "name": "GOC解題妙妙小工具",
+                "desc": "本工具基於開源專案 pot-desktop 修改而來，聚焦「快捷鍵截圖 → 自動辨識 4 個符文與回饋色 → 寫入本局歷史並給出下一步推薦」這一條固定鏈路。",
+                "license_title": "開源授權條款（GPL-3.0）",
+                "license_desc": "原專案 pot-desktop 以 GNU General Public License v3.0（GPL-3.0）授權條款開源。\n因此本修改版同樣以 GPL-3.0 授權條款發布：你可以自由使用、學習、修改和散布本軟體，但散布時必須繼續採用 GPL-3.0 授權條款、保留原版權與授權聲明，並公開完整的修改後原始碼。",
+                "links_title": "相關連結",
+                "links_fork": "freedream753/mio-server-goc-decryption-tool（本修改版）"
             }
         },
         "updater": {
             "title": "檢查更新",
-            "latest": "## 已安裝最新版本",
+            "latest": "## 已是最新版本",
             "progress": "下載進度",
             "update": "更新",
             "downloading": "下載中…",
             "installing": "安裝中…",
             "cancel": "取消",
-            "installed": "安裝完成，請重新啟動應用程式以使變更生效"
+            "installed": "安裝完成，重啟應用程式生效"
         },
         "translate": {
             "translate": "翻譯",
-            "add_collection_success": "成功加入收藏",
+            "add_collection_success": "新增成功",
             "recognizing": "辨識中…",
             "speak": "朗讀",
             "copy": "複製",
             "retry": "重試",
             "delete_newline": "刪除換行",
             "translate_back": "翻譯回原文"
+        },
+        "result": {
+            "title": "GOC妙妙小工具v{{version}}",
+            "drag": "拖曳視窗",
+            "close": "關閉",
+            "crop_off": "取消裁切模式：恢復全螢幕辨識",
+            "crop_on": "裁切模式：框選螢幕區域，之後校準/西門/解密只辨識框內畫面",
+            "rune_scan_failed": "辨識失敗",
+            "tab": {
+                "wave": "校準",
+                "simon": "西門",
+                "cipher": "解密"
+            },
+            "wave": {
+                "desc": "按 Alt+X 或點「辨識」反推四個滑桿位置，照抄即可；畫布被遮蔽辨識失敗時，點「框選」手動圈住波形畫布。開啟標題旁「裁切模式」後只辨識框內畫面。",
+                "scan": "辨識",
+                "select": "框選",
+                "preview_title": "辨識到的波形畫布目標線（與遊戲內完全同構）",
+                "amp": "振幅",
+                "freq": "頻率",
+                "phase": "相位",
+                "off": "偏移"
+            },
+            "simon": {
+                "desc": "點關卡按鈕（或按 Alt+C）開始錄製，符號依次亮起會被自動記錄；錄滿 4/5/6 步自動暫停，照順序點擊遊戲符號。「自由」不限步數，再按一次停止。",
+                "stop": "停止錄製",
+                "recording": "錄製中 {{current}}{{total}}…",
+                "level1": "第一關",
+                "level2": "第二關",
+                "level3": "第三關",
+                "free": "自由",
+                "empty": "暫無記錄。"
+            },
+            "cipher": {
+                "calculating": "正在計算下一步…",
+                "ended": "四次已用完，請點「新一局」。",
+                "turn": "第 {{turn}} 次猜測（照抄進遊戲）：",
+                "worker_error": "策略計算失敗，請關閉視窗後重新開啟。",
+                "recognize": "辨識",
+                "new_game": "新一局",
+                "undo": "撤回",
+                "fix": "修正",
+                "color_hint": "點方塊循環切換 <green>綠</green>/<red>紅</red>/<yellow>黃</yellow>，切好後點「修正」。",
+                "slot_hint": "點擊標記回饋色：綠→紅→黃循環",
+                "slot_color": "目前 {{color}}，點擊切換",
+                "unmarked": "標色"
+            },
+            "color": {
+                "red": "紅",
+                "yellow": "黃",
+                "green": "綠"
+            }
         }
     }
 }

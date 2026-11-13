@@ -103,6 +103,10 @@ export default function Hotkey() {
             } else {
                 code = '';
             }
+            // 仅按下修饰键时 code 为空，此时不更新草稿，避免产生 'Alt' 等残缺串被提交
+            if (code === '') {
+                return;
+            }
             setDraft(`${newValue}${newValue.length > 0 && code.length > 0 ? '+' : ''}${code}`);
         }
     }

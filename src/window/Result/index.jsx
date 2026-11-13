@@ -11,18 +11,16 @@
 import { invoke } from '@tauri-apps/api';
 import { listen } from '@tauri-apps/api/event';
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { version } from '../../../package.json';
 import { appendRecord, loadSession, recordFromSlots, saveSession } from '../../utils/rune-store';
 import { CipherPage, SimonPage, WavePage } from './pages';
 import './style.css';
 
 // 页签定义（v1.2.7 重排）：校准（第一关波形，Alt+X）+ 西蒙（第二关，Alt+C）+ 解密（Alt+V）；
+// 页签名经 i18n 取自 result.tab.<id>（其他 locale 缺失时按 fallbackLng 回落）；
 // 窗口高度由 ResizeObserver 跟随内容实际高度动态调整（见下），命中区域 = 可视区域
-const TABS = [
-    { id: 'wave', name: '校准' },
-    { id: 'simon', name: '西蒙' },
-    { id: 'cipher', name: '解密' },
-];
+const TABS = ['wave', 'simon', 'cipher'];
 
 // payload -> 4 个可编辑位：缺失/越界一律按未识别（null）处理
 function normalizeSlots(slots) {
@@ -38,6 +36,7 @@ function normalizeSlots(slots) {
 }
 
 export default function Result() {
+    const { t } = useTranslation();
     const [tab, setTab] = useState('wave');
     const [cropActive, setCropActive] = useState(false);
     // 最近一次符文识别的失败信息（ok=false 时展示在页签下方，成功后清除）
@@ -61,7 +60,7 @@ export default function Result() {
     const applyPayload = (payload) => {
         if (!payload) return;
         if (!payload.ok) {
-            setRuneError(payload.msg || '识别失败');
+            setRuneError(payload.msg || t('result.rune_scan_failed'));
             changeTab('cipher');
             return;
         }
@@ -160,13 +159,11 @@ export default function Result() {
         <div className="result-container" ref={rootRef}>
             <div className="result-header" data-tauri-drag-region>
                 {/* Tauri v1 拖拽区只识别 mousedown 的精确 target，header 子元素必须逐个带上属性 */}
-                <span className="result-grip" data-tauri-drag-region title="拖动窗口">⠿</span>
+                <span className="result-grip" data-tauri-drag-region title={t('result.drag')}>⠿</span>
                 {/* 裁切模式开关（v1.2.7）：激活时图标实心 + 橙色，悬停看说明 */}
                 <span
                     className={`result-ocr ${cropActive ? 'is-active' : ''}`}
-                    title={cropActive
-                        ? '取消裁切模式：恢复全屏识别'
-                        : '裁切模式：框选屏幕区域，之后校准/西蒙/解密只识别框内画面'}
+                    title={cropActive ? t('result.crop_off') : t('result.crop_on')}
                     onClick={toggleCrop}
                 >
                     {cropActive ? (
@@ -182,20 +179,20 @@ export default function Result() {
                         </svg>
                     )}
                 </span>
-                <span className="result-title" data-tauri-drag-region>{`GOC妙妙小工具v${version}`}</span>
+                <span className="result-title" data-tauri-drag-region>{t('result.title', { version })}</span>
                 {/* 关闭按钮：不带拖拽区属性 */}
-                <span className="result-close" title="关闭" onClick={closeResult}>✕</span>
+                <span className="result-close" title={t('result.close')} onClick={closeResult}>✕</span>
             </div>
 
             {/* 页签：校准/西蒙/解密，全部页面常驻挂载，隐藏仅 display:none */}
             <nav className="result-tabs">
-                {TABS.map((t) => (
+                {TABS.map((id) => (
                     <button
                         type="button"
-                        key={t.id}
-                        className={`result-tab ${tab === t.id ? 'active' : ''}`}
-                        onClick={() => changeTab(t.id)}
-                    >{t.name}</button>
+                        key={id}
+                        className={`result-tab ${tab === id ? 'active' : ''}`}
+                        onClick={() => changeTab(id)}
+                    >{t(`result.tab.${id}`)}</button>
                 ))}
             </nav>
 

@@ -23,6 +23,12 @@ const CUT_SHOT: &str = "pot_screenshot_cut.png";
 // 最近一次求解结果：助手窗口前端挂载后经 get_wave_scan 拉取（防 emit 竞态）
 pub static WAVE_SCAN: Mutex<Option<Value>> = Mutex::new(None);
 
+// 扫描结果互斥锁的容错获取：持锁线程 panic 中毒后恢复内部数据继续服务，
+// 避免连锁 panic 让求解线程静默死亡（仿 simon.rs steps_lock）
+fn scan_lock() -> std::sync::MutexGuard<'static, Option<Value>> {
+    WAVE_SCAN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 // 单飞保护：与符文识别（SCAN_IN_FLIGHT）同一理由（并发截图会写坏缓存 PNG）
 static WAVE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
@@ -76,7 +82,7 @@ pub fn wave_scan() {
     std::thread::spawn(move || {
         let payload = analyze(true, FULL_SHOT, false);
         WAVE_IN_FLIGHT.store(false, Ordering::SeqCst);
-        *WAVE_SCAN.lock().unwrap() = Some(payload.clone());
+        *scan_lock() = Some(payload.clone());
         if let Some(app) = APP.get().cloned() {
             let _ = app.run_on_main_thread(move || {
                 // 结果窗口不存在时先创建（主线程内），再推事件；前端收到后切到波形页
@@ -99,7 +105,7 @@ pub fn on_region_selected() {
     std::thread::spawn(move || {
         let payload = analyze(false, CUT_SHOT, true);
         WAVE_IN_FLIGHT.store(false, Ordering::SeqCst);
-        *WAVE_SCAN.lock().unwrap() = Some(payload.clone());
+        *scan_lock() = Some(payload.clone());
         if let Some(app) = APP.get().cloned() {
             let _ = app.run_on_main_thread(move || {
                 notify_result(payload.clone());
@@ -155,18 +161,17 @@ fn solve_image(img: &image::RgbaImage, manual: bool) -> Result<Value, String> {
     let min_cols = if manual { 60 } else { 200 };
     let min_span = if manual { 60 } else { 100 };
 
-    // 1) 逐像素亮度 lum、暖度 rb（R-B，i32 有符号：蓝调滤镜下全图为负仍要比序）、G 通道
+    // 1) 逐像素亮度 lum、暖度 rb（R-B，i32 有符号：蓝调滤镜下全图为负仍要比序）、G 通道。
+    //    直接读底层字节切片（RGBA4 通道交错），避免逐像素 get_pixel 的边界检查开销
+    //    （仿 simon.rs edge_mask；行主序遍历与原双重循环逐像素等价）
     let mut lum = vec![0u32; (w * h) as usize];
     let mut rb = vec![0i32; (w * h) as usize];
     let mut gch = vec![0u8; (w * h) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let p = img.get_pixel(x, y).0;
-            let i = (y * w + x) as usize;
-            lum[i] = p[0] as u32 + p[1] as u32 + p[2] as u32;
-            rb[i] = p[0] as i32 - p[2] as i32;
-            gch[i] = p[1];
-        }
+    let raw = img.as_raw();
+    for (i, chunk) in raw.chunks_exact(4).enumerate() {
+        lum[i] = chunk[0] as u32 + chunk[1] as u32 + chunk[2] as u32;
+        rb[i] = chunk[0] as i32 - chunk[2] as i32;
+        gch[i] = chunk[1];
     }
 
     // 2) 分级掩膜：
@@ -208,7 +213,9 @@ fn solve_image(img: &image::RgbaImage, manual: bool) -> Result<Value, String> {
         let mut start: Option<u32> = None;
         let mut prev = 0u32;
         for y in 0..h {
-            let cnt = (0..w).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
+            // 整行掩膜取连续切片计数，替代逐像素闭包索引（免重复边界检查）
+            let row = (y * w) as usize;
+            let cnt = mask[row..row + w as usize].iter().filter(|&&v| v).count() as u32;
             if cnt > row_min {
                 if start.is_none() {
                     start = Some(y);
@@ -296,7 +303,12 @@ fn solve_image(img: &image::RgbaImage, manual: bool) -> Result<Value, String> {
             // 画布纵向：x 带内掩膜行过半的连续行块，取包含曲线中位 y 的块
             let mut sub_rows: Vec<u32> = Vec::new();
             for y in 0..h {
-                let cnt = (px0..=px1).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
+                // x 带内连续切片计数，替代逐像素闭包索引（免重复边界检查）
+                let row = (y * w) as usize;
+                let cnt = mask[row + px0 as usize..=row + px1 as usize]
+                    .iter()
+                    .filter(|&&v| v)
+                    .count() as u32;
                 if cnt * 2 > band_w {
                     sub_rows.push(y);
                 }
@@ -315,14 +327,12 @@ fn solve_image(img: &image::RgbaImage, manual: bool) -> Result<Value, String> {
                 cxs.len()
             );
 
-            // 曲线逐列 y 中心 + 双正弦拟合
-            let Some(pts) = curve_points(img, px0, px1, y0, y1) else {
-                continue;
-            };
+            // 曲线逐列 y 中心 + 双正弦拟合（curve_points 恒返回非空 Vec，无失败路径）
+            let pts = curve_points(img, px0, px1, y0, y1);
             if pts.len() < 60 {
                 continue;
             }
-            let fit = fit_two(&pts)?;
+            let fit = fit_two(&pts);
             if fit.r2 >= 0.5 {
                 let (amp, freq, phase, off) = to_sliders(&fit);
                 info!(
@@ -379,7 +389,7 @@ fn curve_points(
     x1: u32,
     y0: u32,
     y1: u32,
-) -> Option<Vec<(f32, f32)>> {
+) -> Vec<(f32, f32)> {
     let band_w = (x1 - x0 + 1) as usize;
     let hh = (y1 - y0) as f32 / 2.0;
     // 画布内基线（隔 2 采样统计）
@@ -394,7 +404,10 @@ fn curve_points(
     }
     let bg = percentile(lums, 50.0) as i64;
     let wb = median_i32(&mut rbs) as i64;
-    // 三级 (Δ亮, Δ暖)：从严到宽；末级 Δ暖 = MIN 表示不筛暖度
+    // 三级 (Δ亮, Δ暖)：从严到宽；末级 Δ暖 = MIN 哨兵表示不筛暖度。
+    // 注意：MIN 哨兵下 wb + dw 必然溢出（深蓝画布 wb 为负，如 -66，wb + i64::MIN
+    // 在 debug 下 panic、release 下回绕成巨大正数使兜底恒假），比较处必须用
+    // saturating_add（见下方 r > wb.saturating_add(dw)）
     let tiers: [(i64, i64); 3] = [(60, 8), (40, 4), (25, i64::MIN)];
     let mut chosen: Option<Vec<Option<f32>>> = None;
     let mut best_cov = -1f32;
@@ -414,7 +427,9 @@ fn curve_points(
                     continue;
                 }
                 let r = (p[0] as i32 - p[2] as i32) as i64;
-                if r > wb + dw {
+                // saturating_add：dw=MIN 哨兵时 wb+dw 会 i64 溢出（wb 为负时更甚），
+                // 饱和后得到 i64::MIN，r 恒大于它 → 末级「不筛暖度」兜底保持恒真
+                if r > wb.saturating_add(dw) {
                     ysum += (y - y0) as f32;
                     cnt += 1;
                 }
@@ -434,12 +449,10 @@ fn curve_points(
     }
     let ys = chosen.unwrap_or(best_ys);
     let band_wm1 = (band_w - 1).max(1) as f32;
-    Some(
-        ys.iter()
-            .enumerate()
-            .filter_map(|(i, v)| v.map(|y| (i as f32 / band_wm1, -(y - hh) / hh)))
-            .collect(),
-    )
+    ys.iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.map(|y| (i as f32 / band_wm1, -(y - hh) / hh)))
+        .collect()
 }
 
 fn percentile(mut v: Vec<u32>, p: f32) -> u32 {
@@ -597,7 +610,7 @@ fn refine_f(pts: &[(f32, f32)], f: f32, span: f32, other: Option<f32>) -> f32 {
 
 // fit_two：基波粗搜 0.3~3.3 → 细化 → 二次谐波在 [1.5f1, min(9.5, 3.3f1)] 粗搜 →
 // 细化 → 两轮联合微调（全部移植自 solver_lib.fit_two）
-fn fit_two(pts: &[(f32, f32)]) -> Result<Fit, String> {
+fn fit_two(pts: &[(f32, f32)]) -> Fit {
     let mut best1 = (f32::INFINITY, 0.8f32);
     let mut f0 = 0.3f32;
     while f0 <= 3.31 {
@@ -649,7 +662,7 @@ fn fit_two(pts: &[(f32, f32)]) -> Result<Fit, String> {
     let off = coef[0];
     let r2 = if yy > 0.0 { 1.0 - sse / yy } else { 0.0 };
     // R² 校验上移到 solve_image 候选循环（低质量候选记入 best_err 后继续试下一候选）
-    Ok(Fit { f1, f2, a1, p1, off, r2, a2, p2 })
+    Fit { f1, f2, a1, p1, off, r2, a2, p2 }
 }
 
 struct Fit {
@@ -779,7 +792,7 @@ mod tests {
                 (x, y)
             })
             .collect();
-        let fit = fit_two(&pts).expect("合成信号拟合失败");
+        let fit = fit_two(&pts);
         println!(
             "synth: f1={:.3}(期望1.4) f2={:.3}(期望3.9) A1={:.3}(期望0.35) p1={:.3}(期望1.1) off={:.3}(期望-0.05)",
             fit.f1, fit.f2, fit.a1, fit.p1, fit.off

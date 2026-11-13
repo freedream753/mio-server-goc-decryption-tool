@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api';
 import { listen } from '@tauri-apps/api/event';
+import { Trans, useTranslation } from 'react-i18next';
 import { codes, symbols } from '../../utils/runes';
 import {
     appendRecord,
@@ -17,7 +18,8 @@ import {
 } from '../../utils/rune-store';
 
 const SYMBOL_LIST = [...symbols];
-const COLOR_NAMES = ['红', '黄', '绿'];
+// 反馈色索引（与 payload 约定一致 0=红 1=黄 2=绿）→ i18n key 后缀，显示时经 result.color.* 取本地化名
+const COLOR_KEYS = ['red', 'yellow', 'green'];
 // 第三关反馈色循环节奏：null → 绿(2) → 红(0) → 黄(1) → null
 const COLOR_CYCLE = [2, 0, 1];
 const label = (index) => codes[index].map((i) => symbols[i]).join(' · ');
@@ -68,6 +70,7 @@ function waveCurvePath(result) {
 }
 
 export function WavePage() {
+    const { t } = useTranslation();
     const [result, setResult] = useState(null);
 
     useEffect(() => {
@@ -85,28 +88,26 @@ export function WavePage() {
     const s = result?.sliders;
     return (
         <div className="lvl-body">
-            <p className="lvl-desc">
-                按 Alt+X 或点「识别」反推四个滑块位置，照抄即可；画布被遮挡识别失败时，点「框选」手动圈住波形画布。开启标题旁「裁切模式」后只识别框内画面。
-            </p>
+            <p className="lvl-desc">{t('result.wave.desc')}</p>
             <div className="lvl-row">
-                <button type="button" className="lvl-btn primary" onClick={scan}>识别</button>
-                <button type="button" className="lvl-btn" onClick={selectRegion}>框选</button>
+                <button type="button" className="lvl-btn primary" onClick={scan}>{t('result.wave.scan')}</button>
+                <button type="button" className="lvl-btn" onClick={selectRegion}>{t('result.wave.select')}</button>
                 {result && !result.ok && <span className="lvl-error">{result.msg}</span>}
             </div>
             {result?.ok && s && (
                 <div className="wave-result">
                     {/* 反推曲线预览：完整双正弦（拟合自游戏目标线），照抄前可先目检 */}
-                    <div className="wave-preview" title="识别到的波形画布目标线（与游戏内完全同构）">
+                    <div className="wave-preview" title={t('result.wave.preview_title')}>
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                             <path d={waveCurvePath(result)} />
                         </svg>
                     </div>
                     {/* 滑块可视化：与游戏四个滑块同构，滑钮位置即应照抄的位置 */}
                     {[
-                        ['振幅', s.amp],
-                        ['频率', s.freq],
-                        ['相位', s.phase],
-                        ['偏移', s.off],
+                        [t('result.wave.amp'), s.amp],
+                        [t('result.wave.freq'), s.freq],
+                        [t('result.wave.phase'), s.phase],
+                        [t('result.wave.off'), s.off],
                     ].map(([name, val]) => (
                         <div className="wave-slider" key={name}>
                             <span className="wave-slider-name">{name}</span>
@@ -126,6 +127,7 @@ export function WavePage() {
 // ---------------- 第二关 西蒙符印 ----------------
 
 export function SimonPage() {
+    const { t } = useTranslation();
     const [steps, setSteps] = useState([]);
     const [running, setRunning] = useState(false);
     const [error, setError] = useState('');
@@ -153,7 +155,6 @@ export function SimonPage() {
     }, []);
 
     const stop = () => invoke('simon_stop').catch(() => {});
-    // 关卡按钮：第一/二/三关固定 4/5/6 步，录满自动暂停；自由 = 不限步数手动停
     const start = (t) => {
         setSteps([]);
         setError('');
@@ -162,27 +163,28 @@ export function SimonPage() {
         invoke('simon_start', { target: t }).catch(() => {});
     };
 
+    // 关卡按钮：第一/二/三关固定 4/5/6 步，录满自动暂停；自由 = 不限步数手动停
     const LEVELS = [
-        ['第一关', 4],
-        ['第二关', 5],
-        ['第三关', 6],
+        [t('result.simon.level1'), 4],
+        [t('result.simon.level2'), 5],
+        [t('result.simon.level3'), 6],
     ];
 
     return (
         <div className="lvl-body">
-            <p className="lvl-desc">点关卡按钮（或按 Alt+C）开始录制，符号依次亮起会被自动记录；录满 4/5/6 步自动暂停，照顺序点击游戏符号。「自由」不限步数，再按一次停止。</p>
+            <p className="lvl-desc">{t('result.simon.desc')}</p>
             <div className="lvl-row">
                 {running ? (
                     <>
-                        <button type="button" className="lvl-btn primary is-danger" onClick={stop}>停止录制</button>
-                        <span className="lvl-hint">录制中 {steps.length}{target > 0 ? `/${target}` : ''}…</span>
+                        <button type="button" className="lvl-btn primary is-danger" onClick={stop}>{t('result.simon.stop')}</button>
+                        <span className="lvl-hint">{t('result.simon.recording', { current: steps.length, total: target > 0 ? `/${target}` : '' })}</span>
                     </>
                 ) : (
                     <>
                         {LEVELS.map(([name, n]) => (
                             <button type="button" key={n} className="lvl-btn" onClick={() => start(n)}>{name}</button>
                         ))}
-                        <button type="button" className="lvl-btn primary" onClick={() => start(0)}>自由</button>
+                        <button type="button" className="lvl-btn primary" onClick={() => start(0)}>{t('result.simon.free')}</button>
                     </>
                 )}
                 {error && <span className="lvl-error">{error}</span>}
@@ -193,7 +195,7 @@ export function SimonPage() {
                     {steps.map((s) => <span className="simon-step" key={s.seq}>{s.seq}. {s.name}</span>)}
                 </div>
             )}
-            {!steps.length && !running && <p className="lvl-hint">暂无记录。</p>}
+            {!steps.length && !running && <p className="lvl-hint">{t('result.simon.empty')}</p>}
         </div>
     );
 }
@@ -201,6 +203,7 @@ export function SimonPage() {
 // ---------------- 第三关 密码破解 ----------------
 
 export function CipherPage() {
+    const { t } = useTranslation();
     const [session, setSession] = useState(loadSession);
     // 会话只经 rune-store 读写；写操作前重新加载，避免覆盖自动识别刚写入的记录。
     // 注意必须返回计算结果本身（setSession 无返回值，表达式体箭头函数会返回 undefined）
@@ -216,6 +219,8 @@ export function CipherPage() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const worker = useRef(null);
+    // 破解成功后自动开新一局的延迟定时器（600ms），卸载时清理避免泄漏
+    const newGameTimer = useRef(null);
     const serial = useRef(0);
     const sessionRef = useRef(session); // 当前会话序列化快照，广播去重用
 
@@ -233,14 +238,17 @@ export function CipherPage() {
         };
         w.onerror = () => {
             setBusy(false);
-            setError('策略计算失败，请关闭窗口后重新打开。');
+            setError(t('result.cipher.worker_error'));
         };
         // 挂载时若已有历史（自动识别或上一窗口先记录过），重算推荐而不是停留在初始猜测
         if (session.history.length) {
             setBusy(true);
             w.postMessage({ id: ++serial.current, history: session.history });
         }
-        return () => w.terminate();
+        return () => {
+            window.clearTimeout(newGameTimer.current);
+            w.terminate();
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -291,7 +299,7 @@ export function CipherPage() {
         worker.current.postMessage({ id: ++serial.current, history: next.history });
         // 四个反馈全绿 = 本局已破解（v1.2.7）：短暂停留让用户看到全绿，然后自动重开新一局
         if (encodedColors === 80) {
-            window.setTimeout(() => newGame(), 600);
+            newGameTimer.current = window.setTimeout(() => newGame(), 600);
         }
     };
 
@@ -306,9 +314,10 @@ export function CipherPage() {
 
     const undo = () => {
         if (!history.length) return;
-        mutate(undoLast);
+        // 用 mutate 返回的最新会话发 worker（渲染闭包里的 history 可能落后于刚写入的自动识别记录）
+        const next = mutate(undoLast);
         setBusy(true);
-        worker.current.postMessage({ id: ++serial.current, history: history.slice(0, -1) });
+        worker.current.postMessage({ id: ++serial.current, history: next.history });
     };
 
     const turn = 1 + history.length; // 第几次猜测
@@ -317,16 +326,25 @@ export function CipherPage() {
     return (
         <div className="lvl-body">
             <div className="lvl-row between">
-                <span className="lvl-status">{busy ? '正在计算下一步…' : error ||
-                    (ended ? '四次已用完，请点「新一局」。' : `第 ${turn} 次猜测（照抄进游戏）：`)}</span>
+                <span className="lvl-status">{busy ? t('result.cipher.calculating') : error ||
+                    (ended ? t('result.cipher.ended') : t('result.cipher.turn', { turn }))}</span>
                 <span className="lvl-tools">
                     {/* 识别：与热键 Alt+V 同入口，全屏识别结果自动写入本页并重算推荐 */}
-                    <button type="button" className="lvl-btn" onClick={() => invoke('rune_recognize').catch(() => {})}>识别</button>
-                    <button type="button" className="lvl-btn" onClick={newGame}>新一局</button>
-                    <button type="button" className="lvl-btn" disabled={!history.length} onClick={undo}>撤回</button>
+                    <button type="button" className="lvl-btn" onClick={() => invoke('rune_recognize').catch(() => {})}>{t('result.cipher.recognize')}</button>
+                    <button type="button" className="lvl-btn" onClick={newGame}>{t('result.cipher.new_game')}</button>
+                    <button type="button" className="lvl-btn" disabled={!history.length} onClick={undo}>{t('result.cipher.undo')}</button>
                 </span>
             </div>
-            <p className="lvl-desc">点方块循环切换 <b className="lvl-c2">绿</b>/<b className="lvl-c0">红</b>/<b className="lvl-c1">黄</b>，切好后点「修正」。</p>
+            <p className="lvl-desc">
+                <Trans
+                    i18nKey="result.cipher.color_hint"
+                    components={{
+                        green: <b className="lvl-c2" />,
+                        red: <b className="lvl-c0" />,
+                        yellow: <b className="lvl-c1" />,
+                    }}
+                />
+            </p>
             <div className="cipher-slots">
                 {guess.map((value, i) => (
                     <button
@@ -334,10 +352,12 @@ export function CipherPage() {
                         key={i}
                         className={`cipher-slot ${selected === i ? 'is-selected' : ''} ${colors[i] != null ? `is-${colors[i]}` : ''}`}
                         onClick={() => cycleColor(i)}
-                        title={colors[i] == null ? '点击标记反馈色：绿→红→黄循环' : `当前 ${COLOR_NAMES[colors[i]]}，点击切换`}
+                        title={colors[i] == null
+                            ? t('result.cipher.slot_hint')
+                            : t('result.cipher.slot_color', { color: t(`result.color.${COLOR_KEYS[colors[i]]}`) })}
                     >
                         <span className="cipher-symbol">{symbols[value]}</span>
-                        <span className="cipher-color-name">{colors[i] == null ? '标色' : COLOR_NAMES[colors[i]]}</span>
+                        <span className="cipher-color-name">{colors[i] == null ? t('result.cipher.unmarked') : t(`result.color.${COLOR_KEYS[colors[i]]}`)}</span>
                     </button>
                 ))}
             </div>
@@ -349,7 +369,7 @@ export function CipherPage() {
                 className="lvl-btn primary"
                 disabled={busy || ended || colors.includes(null)}
                 onClick={applyFix}
-            >修正</button>
+            >{t('result.cipher.fix')}</button>
             {!!history.length && (
                 <ol className="rune-history">
                     {history.map((h, i) => (
@@ -358,7 +378,7 @@ export function CipherPage() {
                             <span>
                                 {[0, 1, 2, 3].map((j) => (
                                     <b key={j} className={`lvl-c${Math.floor(h.result / 3 ** j) % 3}`}>
-                                        {COLOR_NAMES[Math.floor(h.result / 3 ** j) % 3]}
+                                        {t(`result.color.${COLOR_KEYS[Math.floor(h.result / 3 ** j) % 3]}`)}
                                     </b>
                                 ))}
                             </span>

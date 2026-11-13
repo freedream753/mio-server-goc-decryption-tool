@@ -66,27 +66,20 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (appTheme !== null) {
-            if (appTheme !== 'system') {
-                setTheme(appTheme);
-            } else {
-                try {
-                    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                        setTheme('dark');
-                    } else {
-                        setTheme('light');
-                    }
-                    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                        if (e.matches) {
-                            setTheme('dark');
-                        } else {
-                            setTheme('light');
-                        }
-                    });
-                } catch {
-                    warn("Can't detect system theme.");
-                }
-            }
+        if (appTheme === null) return; // 初始加载不动
+        if (appTheme !== 'system') {
+            setTheme(appTheme);
+            return;
+        }
+        try {
+            // 跟随系统主题：同一实例上监听变化，卸载时移除，避免监听泄漏
+            const mq = window.matchMedia('(prefers-color-scheme: dark)');
+            const apply = () => setTheme(mq.matches ? 'dark' : 'light');
+            apply();
+            mq.addEventListener('change', apply);
+            return () => mq.removeEventListener('change', apply);
+        } catch {
+            warn("Can't detect system theme.");
         }
     }, [appTheme]);
 

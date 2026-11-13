@@ -29,6 +29,12 @@ pub static SIMON_STEPS: Mutex<Vec<Value>> = Mutex::new(Vec::new());
 // 2×3 网格符文名（按格序：上排 0..2，下排 3..5）。第二关没有「空」，第 6 格是「光」
 pub const SIMON_NAMES: [&str; 6] = ["火", "水", "风", "土", "雷", "光"];
 
+// 步骤互斥锁的容错获取：持锁线程 panic 后中毒时恢复内部数据继续服务，
+// 避免连锁 panic 让录制线程静默死亡
+fn steps_lock() -> std::sync::MutexGuard<'static, Vec<Value>> {
+    SIMON_STEPS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Tile {
     x: u32,
@@ -59,7 +65,7 @@ pub fn simon_toggle() {
 }
 
 pub fn get_simon_steps() -> Vec<Value> {
-    SIMON_STEPS.lock().unwrap().clone()
+    steps_lock().clone()
 }
 
 // 录制运行状态（前端挂载后拉取，防 start 的 emit 早于监听注册的竞态：
@@ -71,7 +77,7 @@ pub fn simon_running() -> bool {
 pub fn simon_start_impl() {
     // 递增代际号：正在跑的旧 record_loop 检测到代际不符即自行退出
     let gen = SIMON_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    SIMON_STEPS.lock().unwrap().clear();
+    steps_lock().clear();
     SIMON_RUNNING.store(true, Ordering::SeqCst);
     // 热键触发时窗口可能尚未创建/隐藏：先拉起并显示（首次定位鼠标附近，
     // 之后原位），再推 simon_state——前端收到 running=true 切到西蒙页签。
@@ -90,7 +96,7 @@ pub fn simon_start_impl() {
 
 pub fn simon_stop_impl() {
     SIMON_RUNNING.store(false, Ordering::SeqCst);
-    let total = SIMON_STEPS.lock().unwrap().len();
+    let total = steps_lock().len();
     emit_state(false, total, None, None);
     info!("[simon] 录制结束，共 {} 步", total);
 }
@@ -172,7 +178,7 @@ fn record_loop(gen: u64) {
                 info!("[simon] 帧截图失败({}/{}): {}", fail_run, FAIL_LIMIT, e);
                 if fail_run >= FAIL_LIMIT {
                     warn!("[simon] 连续截图失败，录制停止");
-                    let total = SIMON_STEPS.lock().unwrap().len();
+                    let total = steps_lock().len();
                     emit_state(
                         false,
                         total,
@@ -194,6 +200,10 @@ fn record_loop(gen: u64) {
                 // （发生在记录后 ~100ms 内）被拦下，不会把一次亮拆成两步
                 let now = std::time::Instant::now();
                 if last_rec[i].is_some_and(|t| now.duration_since(t) < REFRACTORY) {
+                    // 被不应期拦下的上升沿视为「仍是同一次亮」：锁存亮态，否则
+                    // 亮持续 >300ms 且中途混入暗毛刺时，过期后会再触发上升沿
+                    // 把同一次亮拆成两步
+                    lit_state[i] = true;
                     continue;
                 }
                 // 写入前复核代际：防止新 start 已清空步骤后旧循环再补入脏数据
@@ -204,7 +214,12 @@ fn record_loop(gen: u64) {
                 lit_state[i] = true;
                 seq += 1;
                 let step = json!({ "seq": seq, "index": i, "name": SIMON_NAMES[i] });
-                SIMON_STEPS.lock().unwrap().push(step.clone());
+                steps_lock().push(step.clone());
+                // 写入后复核代际：stop→start 已清空步骤的话，回滚这条脏数据
+                if !alive(gen) {
+                    steps_lock().pop();
+                    return;
+                }
                 info!("[simon] 第{}步 {}", seq, SIMON_NAMES[i]);
                 if let Some(app) = APP.get().cloned() {
                     let _ = app.clone().run_on_main_thread(move || {
@@ -239,11 +254,11 @@ fn record_loop(gen: u64) {
 // 通吃。阈值 24：实测滤镜帧边框梯度 40~110、旧样张 35~73、视频压缩噪点 <20。
 fn edge_mask(img: &RgbaImage) -> Vec<bool> {
     let (w, h) = img.dimensions();
+    // 直接读底层字节切片（RGBA4 通道交错），避免逐像素 get_pixel 的边界检查开销
+    let raw = img.as_raw();
     let mut b = vec![0i32; (w * h) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            b[(y * w + x) as usize] = img.get_pixel(x, y).0[2] as i32;
-        }
+    for (i, chunk) in raw.chunks_exact(4).enumerate() {
+        b[i] = chunk[2] as i32;
     }
     let at = |x: u32, y: u32| b[(y * w + x) as usize];
     let mut mask = vec![false; (w * h) as usize];
@@ -278,7 +293,8 @@ fn strong_lines(mask: &[bool], w: u32, h: u32) -> Vec<(u32, u32)> {
     let mut start: Option<u32> = None;
     let mut prev = 0u32;
     for y in 0..h {
-        let c = (0..w).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
+        let row = (y * w) as usize;
+        let c = mask[row..row + w as usize].iter().filter(|&&v| v).count() as u32;
         if c >= thr {
             if start.is_none() {
                 start = Some(y);
@@ -345,7 +361,13 @@ fn bars_ps(ps: &[u32], w: u32, y0: u32, y1: u32, thr: u32) -> Vec<(u32, u32)> {
 // 可能过阈，但只在两端边框行全部失守时才会被误取，且随后近方形校验会拒绝）。
 fn refine_y(mask: &[bool], w: u32, x0: u32, x1: u32, y0: u32, y1: u32) -> Option<(u32, u32)> {
     let need = (((x1 - x0 + 1) * 3 / 10) as u32).max(4);
-    let count = |y: u32| (x0..=x1).filter(|&x| mask[(y * w + x) as usize]).count() as u32;
+    let count = |y: u32| {
+        let row = (y * w) as usize;
+        mask[row + x0 as usize..row + x1 as usize + 1]
+            .iter()
+            .filter(|&&v| v)
+            .count() as u32
+    };
     let top = (y0..=y1).find(|&y| count(y) >= need)?;
     let bottom = (y0..=y1).rev().find(|&y| count(y) >= need)?;
     (bottom > top).then_some((top, bottom))
@@ -355,7 +377,8 @@ fn refine_y(mask: &[bool], w: u32, x0: u32, x1: u32, y0: u32, y1: u32) -> Option
 // 框宽/节距 ∈ [0.3, 0.85]（亮块是实心填充，不放 ring_contrast）
 fn validate_row(win: &[Tile; 3]) -> bool {
     let (wmin, wmax) = win.iter().fold((u32::MAX, 0u32), |(lo, hi), r| (lo.min(r.w), hi.max(r.w)));
-    if wmax > wmin + wmin / 3 || wmax > wmin * 4 / 3 {
+    // wmin + wmin/3 与 wmin*4/3 在整数域恒等（floor(4n/3)=n+floor(n/3)），只留一个
+    if wmax > wmin + wmin / 3 {
         return false;
     }
     let (hmin, hmax) = win.iter().fold((u32::MAX, 0u32), |(lo, hi), r| (lo.min(r.h), hi.max(r.h)));
@@ -570,10 +593,15 @@ fn frame_meds(img: &RgbaImage, tiles: &[Tile; 6]) -> [u8; 6] {
 
 // 六格互比 → 亮起位图。阈值 +55：滤镜帧未亮偏差最大 +35（雷 172 vs 中位 137）、
 // 亮起最低 +91（228 vs 137）；旧样张未亮 39 / 亮 213。余量双向 ≥20。
+// 基线取排序后次小值 s[1]：播放期同时亮的 ≤3 格 → 前 3 个值必为暗格，s[1]
+// 恒为暗且是「典型暗值」。旧取 s[3]（上中位）在恰好 3 格同亮时被亮格拉高
+// （s[3]=最小亮值，亮格极差 ~21 < 阈值 55 → 整帧漏判）；取 s[2]（最大暗值）
+// 则会被雷格悬停高亮（172）压到亮侧余量只剩 ~1。s[1] 双向余量最均衡：
+// 暗侧（悬停 172 vs s[1]≈135 → +37 < 55）、亮侧（228 vs s[1]≈135 → +91 > 55）。
 fn lit_from_meds(meds: &[u8; 6]) -> [bool; 6] {
     let mut s = *meds;
     s.sort_unstable();
-    let med = s[3] as i32; // 上中位：播放期同时亮的 ≤3 格，阈值不会被亮格拉高
+    let med = s[1] as i32; // 次小值：≤3 亮时恒为暗格，且免疫单格悬停高亮/噪点
     let mut out = [false; 6];
     for (i, &m) in meds.iter().enumerate() {
         out[i] = (m as i32) > med + 55;
@@ -702,5 +730,28 @@ mod tests {
             .collect();
         println!("亮起格: {:?} meds={:?}（期望 [3] 土）", lit, meds);
         assert_eq!(lit, vec![3], "亮块判别不符视频实际内容");
+    }
+
+    // 3 格同亮合成用例（设计假设内边界，旧 s[3] 基线在此整帧漏判）：
+    // 暗格 135~150 + 悬停高亮 172，亮格 228~249
+    #[test]
+    fn simon_lit_three_simultaneous() {
+        let assert_lit = |meds: &[u8; 6]| -> Vec<usize> {
+            lit_from_meds(meds)
+                .iter()
+                .enumerate()
+                .filter(|(_, &v)| v)
+                .map(|(i, _)| i)
+                .collect()
+        };
+        // 2 亮 3 暗 1 悬停：亮 = 格4、格5
+        let meds = [135, 140, 150, 172, 228, 249];
+        assert_eq!(assert_lit(&meds), vec![4, 5], "亮格判别错误: {:?}", meds);
+        // 恰好 3 亮（乱序排列）+ 悬停在暗格：亮 = 格0、格2、格4
+        let meds = [228, 135, 240, 172, 249, 150];
+        assert_eq!(assert_lit(&meds), vec![0, 2, 4], "3 亮被暗基线拉高误判: {:?}", meds);
+        // 待机帧（0 亮）：最高暗值（含悬停 175）不得误判
+        let meds = [135, 140, 150, 160, 172, 175];
+        assert!(assert_lit(&meds).is_empty(), "待机帧误判亮块: {:?}", meds);
     }
 }

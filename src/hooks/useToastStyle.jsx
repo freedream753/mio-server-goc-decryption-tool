@@ -7,7 +7,7 @@ export const useToastStyle = () => {
         background: theme == 'dark' ? semanticColors.dark.content1.DEFAULT : semanticColors.light.content1.DEFAULT,
         color: theme == 'dark' ? semanticColors.dark.foreground.DEFAULT : semanticColors.light.foreground.DEFAULT,
         wordBreak: 'break-all',
-        select: 'text',
+        userSelect: 'text',
     };
 
     return toastStyle;

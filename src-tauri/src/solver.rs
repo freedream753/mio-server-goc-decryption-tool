@@ -4,7 +4,8 @@
 
 use crate::APP;
 use image::DynamicImage;
-use log::info;
+use log::{info, warn};
+use screenshots::Screen;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -50,35 +51,49 @@ fn apply_crop_region(img: image::RgbaImage, origin_x: i32, origin_y: i32) -> ima
     .to_image()
 }
 
-// 抓鼠标所在显示器的全屏图，写入 pot_screenshot_full.png。
-// v1.2.7 起裁切模式生效时只写入框选区域（交集裁剪）
-pub fn capture_fullscreen() -> Result<(), String> {
-    use mouse_position::mouse_position::Mouse;
-    use screenshots::Screen;
-
-    let (mx, my) = match Mouse::get_mouse_position() {
-        Mouse::Position { x, y } => (x, y),
-        Mouse::Error => (0, 0),
+// 鼠标坐标 (mx, my) 命中的显示器：返回显示器对象与原点+尺寸（物理像素），
+// 两处截图管线共用同一套命中循环；坐标在所有显示器之外时返回 None。
+fn monitor_at(mx: i32, my: i32) -> Option<(Screen, i32, i32, i32, i32)> {
+    let screens = match Screen::all() {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("[solver] 枚举显示器失败: {}", e);
+            return None;
+        }
     };
-    let screens = Screen::all().map_err(|e| e.to_string())?;
     for screen in screens {
         let d = screen.display_info;
         let (dx, dy) = (d.x, d.y);
         let (dw, dh) = (d.width as i32, d.height as i32);
         if mx >= dx && my >= dy && mx < dx + dw && my < dy + dh {
-            let img = screen.capture().map_err(|e| e.to_string())?;
-            let raw = image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().clone())
-                .ok_or_else(|| "截图缓冲尺寸不符".to_string())?;
-            let cropped = apply_crop_region(raw, dx, dy);
-            let buf = to_png(&DynamicImage::ImageRgba8(cropped))?;
-            let path = cache_file("pot_screenshot_full.png")?;
-            let _io = SHOT_IO.lock().unwrap();
-            std::fs::write(&path, buf).map_err(|e| e.to_string())?;
-            info!("[solver] 全屏截图完成: {:?}", path);
-            return Ok(());
+            return Some((screen, dx, dy, dw, dh));
         }
     }
-    Err(format!("mouse monitor not found: {},{}", mx, my))
+    None
+}
+
+// 抓鼠标所在显示器的全屏图，写入 pot_screenshot_full.png。
+// v1.2.7 起裁切模式生效时只写入框选区域（交集裁剪）
+pub fn capture_fullscreen() -> Result<(), String> {
+    use mouse_position::mouse_position::Mouse;
+
+    let (mx, my) = match Mouse::get_mouse_position() {
+        Mouse::Position { x, y } => (x, y),
+        // 静默回退 (0,0) 会把截图打到主屏并吞掉真实故障，改为向上传播
+        Mouse::Error => return Err("获取鼠标位置失败".to_string()),
+    };
+    let (screen, dx, dy, _dw, _dh) =
+        monitor_at(mx, my).ok_or_else(|| format!("mouse monitor not found: {},{}", mx, my))?;
+    let img = screen.capture().map_err(|e| e.to_string())?;
+    let raw = image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().clone())
+        .ok_or_else(|| "截图缓冲尺寸不符".to_string())?;
+    let cropped = apply_crop_region(raw, dx, dy);
+    let buf = to_png(&DynamicImage::ImageRgba8(cropped))?;
+    let path = cache_file("pot_screenshot_full.png")?;
+    let _io = SHOT_IO.lock().unwrap_or_else(|e| e.into_inner());
+    std::fs::write(&path, buf).map_err(|e| e.to_string())?;
+    info!("[solver] 全屏截图完成: {:?}", path);
+    Ok(())
 }
 
 // 抓鼠标所在显示器的全屏图，直接返回内存 RGBA（不落盘）。
@@ -89,27 +104,20 @@ pub fn capture_fullscreen() -> Result<(), String> {
 // 的亮起闪现在两帧滞回确认之间结束，一步都录不上：v1.2.4 修复的根因）。
 pub fn capture_monitor_to_mem() -> Result<image::RgbaImage, String> {
     use mouse_position::mouse_position::Mouse;
-    use screenshots::Screen;
 
     let (mx, my) = match Mouse::get_mouse_position() {
         Mouse::Position { x, y } => (x, y),
-        Mouse::Error => (0, 0),
+        // 静默回退 (0,0) 会把截图打到主屏并吞掉真实故障，改为向上传播
+        Mouse::Error => return Err("获取鼠标位置失败".to_string()),
     };
-    let screens = Screen::all().map_err(|e| e.to_string())?;
-    for screen in screens {
-        let d = screen.display_info;
-        let (dx, dy) = (d.x, d.y);
-        let (dw, dh) = (d.width as i32, d.height as i32);
-        if mx >= dx && my >= dy && mx < dx + dw && my < dy + dh {
-            let img = screen.capture().map_err(|e| e.to_string())?;
-            let (w, h) = (img.width(), img.height());
-            let raw = img.rgba().clone();
-            let img = image::RgbaImage::from_raw(w, h, raw).ok_or_else(|| "截图缓冲尺寸不符".into());
-            // 裁切模式生效时只保留框选区域（高频轮询管线同样受益：图更小、检测更快）
-            return img.map(|v| apply_crop_region(v, dx, dy));
-        }
-    }
-    Err(format!("mouse monitor not found: {},{}", mx, my))
+    let (screen, dx, dy, _dw, _dh) =
+        monitor_at(mx, my).ok_or_else(|| format!("mouse monitor not found: {},{}", mx, my))?;
+    let img = screen.capture().map_err(|e| e.to_string())?;
+    let (w, h) = (img.width(), img.height());
+    let raw = img.rgba().clone();
+    let img = image::RgbaImage::from_raw(w, h, raw).ok_or_else(|| "截图缓冲尺寸不符".into());
+    // 裁切模式生效时只保留框选区域（高频轮询管线同样受益：图更小、检测更快）
+    return img.map(|v| apply_crop_region(v, dx, dy));
 }
 
 // 读取缓存截图。按内容嗅探格式（兼容测试时直接拷入的 JPG），不依赖扩展名
@@ -118,7 +126,7 @@ pub fn load_screenshot(name: &str) -> Result<image::RgbaImage, String> {
     if !path.exists() {
         return Err("截图缓存不存在".into());
     }
-    let _io = SHOT_IO.lock().unwrap();
+    let _io = SHOT_IO.lock().unwrap_or_else(|e| e.into_inner());
     let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let reader = image::ImageReader::new(std::io::BufReader::new(file))
         .with_guessed_format()

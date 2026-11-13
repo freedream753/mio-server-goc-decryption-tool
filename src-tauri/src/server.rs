@@ -39,6 +39,18 @@ pub fn start_server() {
 }
 
 fn http_handle(request: Request) {
+    // 入口来源校验：服务只服务于本机脚本/托盘触发，任意网页可用
+    // <img src="http://127.0.0.1:60828/"> 或 fetch no-cors 跨站触发截屏+弹窗+
+    // 写剪贴板，且 Host 不校验存在 DNS rebinding 面。命中拒绝条件直接回 403，
+    // 不执行任何管线；curl/脚本等非浏览器工具不带浏览器指纹头 → 正常放行。
+    if let Some(reason) = reject_reason(&request) {
+        warn!("HTTP request rejected: {}", reason);
+        let response = Response::from_string("forbidden").with_status_code(403);
+        if let Err(e) = request.respond(response) {
+            warn!("HTTP respond failed: {}", e);
+        }
+        return;
+    }
     info!("Handle {} request", request.url());
     match request.url() {
         // 主入口：截图 → 识别符文 → 结果窗口（失败在结果窗口报错）
@@ -48,6 +60,47 @@ fn http_handle(request: Request) {
         "/config" => handle_config(request),
         _ => warn!("Unknown request url: {}", request.url()),
     }
+}
+
+// 提取请求头中的 Host / Sec-Fetch-Site / Origin（字段名大小写不敏感），
+// 按下列规则判定拒绝原因（None = 放行）：
+// ① Host 存在但不以 127.0.0.1 / localhost 开头 → 防 DNS rebinding；
+// ② Sec-Fetch-Site 存在且不是 none / same-origin → Chromium/WebView2 发起
+//    跨站请求必带此头，非浏览器工具（curl/脚本）不带 → 放行；
+// ③ Origin 存在且不以 http://127.0.0.1 / http://localhost / tauri:// 开头。
+fn reject_reason(request: &Request) -> Option<String> {
+    let mut host: Option<&str> = None;
+    let mut site: Option<&str> = None;
+    let mut origin: Option<&str> = None;
+    for h in request.headers().iter() {
+        let value = h.value.as_str();
+        if h.field.equiv("Host") {
+            host = Some(value);
+        } else if h.field.equiv("Sec-Fetch-Site") {
+            site = Some(value);
+        } else if h.field.equiv("Origin") {
+            origin = Some(value);
+        }
+    }
+    if let Some(host) = host {
+        if !host.starts_with("127.0.0.1") && !host.starts_with("localhost") {
+            return Some(format!("非法 Host: {}", host));
+        }
+    }
+    if let Some(site) = site {
+        if site != "none" && site != "same-origin" {
+            return Some(format!("跨站请求 Sec-Fetch-Site: {}", site));
+        }
+    }
+    if let Some(origin) = origin {
+        if !origin.starts_with("http://127.0.0.1")
+            && !origin.starts_with("http://localhost")
+            && !origin.starts_with("tauri://")
+        {
+            return Some(format!("非法 Origin: {}", origin));
+        }
+    }
+    None
 }
 
 fn handle_config(request: Request) {
