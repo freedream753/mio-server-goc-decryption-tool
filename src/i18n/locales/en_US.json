@@ -9,39 +9,6 @@
             "coming": "Coming soon…",
             "clear": "Clear"
         },
-        "languages": {
-            "auto": "Auto Detect",
-            "zh_cn": "Simplified Chinese",
-            "zh_tw": "Traditional Chinese",
-            "ja": "Japanese",
-            "en": "English",
-            "ko": "Korean",
-            "fr": "French",
-            "es": "Spanish",
-            "ru": "Russian",
-            "de": "German",
-            "it": "Italian",
-            "tr": "Turkish",
-            "pt_pt": "Portuguese",
-            "pt_br": "Portuguese (Brazil)",
-            "vi": "Vietnamese",
-            "id": "Indonesian",
-            "th": "Thai",
-            "ms": "Malay",
-            "ar": "Arabic",
-            "hi": "Hindi",
-            "mn_mo": "Mongolian",
-            "mn_cy": "Mongolian(Cyrillic)",
-            "km": "Khmer",
-            "nb_no": "Norwegian Bokmål",
-            "nn_no": "Norwegian Nynorsk",
-            "fa": "Persian",
-            "sv": "Swedish",
-            "pl": "Polish",
-            "nl": "Dutch",
-            "uk": "Ukrainian",
-            "he": "Hebrew"
-        },
         "config": {
             "general": {
                 "label": "General",
@@ -196,16 +163,31 @@
             "title": "GOC Solver v{{version}}",
             "drag": "Drag window",
             "close": "Close",
-            "crop_off": "Exit crop mode: resume full-screen recognition",
+            "crop_off": "Exit crop mode: recognition stays unavailable until a new area is selected",
             "crop_on": "Crop mode: select a screen area; Wave/Simon/Cipher will only recognize inside it",
+            "crop_required": "Enable crop mode first: click the frame icon at the top-left and select the game area — recognition only happens inside it",
             "rune_scan_failed": "Recognition failed",
+            "rune_err": {
+                "capture_fail": "Full-screen capture failed — make sure the game window is visible on any monitor, then try again",
+                "cache_read_fail": "Failed to read the cached screenshot, please try again",
+                "slots_not_found": "Couldn't locate the four rune slots — make sure the puzzle panel is fully visible, then try again"
+            },
+            "rune": {
+                "empty": "Empty",
+                "fire": "Fire",
+                "water": "Water",
+                "wind": "Wind",
+                "earth": "Earth",
+                "thunder": "Thunder",
+                "light": "Light"
+            },
             "tab": {
                 "wave": "Wave",
                 "simon": "Simon",
                 "cipher": "Cipher"
             },
             "wave": {
-                "desc": "Press Alt+X or click \"Scan\" to solve the four sliders, then copy them; if the canvas is covered and recognition fails, click \"Select\" to circle the waveform canvas manually. With \"Crop mode\" enabled next to the title, only the framed area is recognized.",
+                "desc": "Press Alt+X or click \"Scan\" to solve the four sliders, then copy them. Enable \"Crop mode\" next to the title and frame the wave-canvas area first; hotkeys open the selection automatically when crop mode is off.",
                 "scan": "Scan",
                 "select": "Select",
                 "preview_title": "Recognized target curve of the waveform canvas (identical to the in-game one)",
@@ -215,13 +197,12 @@
                 "off": "Offset"
             },
             "simon": {
-                "desc": "Click a level button (or press Alt+C) to start recording; lit symbols are captured automatically. Recording pauses at 4/5/6 steps — click the in-game symbols in order. \"Free\" has no step limit; press it again to stop.",
+                "desc": "Starts automatically on this tab: the assistant reads the game status text — idles until you click Start, records lit symbols during \"Playing\", truncates to 4/5/6 steps when \"Round X/3\" appears, then stops capturing — click the in-game symbols in the order shown at each tile's center. Errors reset automatically. \"Free\" has no step limit; start/stop manually.",
                 "stop": "Stop recording",
                 "recording": "Recording {{current}}{{total}}…",
-                "level1": "Level 1",
-                "level2": "Level 2",
-                "level3": "Level 3",
+                "auto": "Auto",
                 "free": "Free",
+                "grid_hint": "The 3×2 grid mirrors the game layout: top Fire·Water·Wind, bottom Earth·Thunder·Light. The big number at a tile's center = the order that rune lights up, updated live while recording.",
                 "empty": "No records yet."
             },
             "cipher": {
@@ -233,10 +214,8 @@
                 "new_game": "New Game",
                 "undo": "Undo",
                 "fix": "Fix",
-                "color_hint": "Click a block to cycle <green>green</green>/<red>red</red>/<yellow>yellow</yellow>, then click \"Fix\".",
-                "slot_hint": "Click to mark the feedback color: green → red → yellow",
-                "slot_color": "Currently {{color}}, click to change",
-                "unmarked": "Mark"
+                "color_hint": "Blocks default to <green>green</green> (kept unless clicked): left-click cycles green→red→yellow, middle-click sets <yellow>yellow</yellow>, right-click marks <red>red</red>. Then click \"Fix\".",
+                "slot_color": "Currently {{color}}: left-click to cycle, middle-click = yellow, right-click = red"
             },
             "color": {
                 "red": "red",

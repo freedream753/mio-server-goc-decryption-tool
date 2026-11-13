@@ -1,4 +1,6 @@
-const symbols = '空火水风土雷';
+// 符文名 i18n key 表（0=空 1=火 2=水 3=风 4=土 5=雷，与 Rust 侧 RUNE_NAMES 同序；
+// 显示经 result.rune.* 取本地化名，不再硬编码中文字符）
+const runeKeys = ['empty', 'fire', 'water', 'wind', 'earth', 'thunder'];
 const codes = Array.from({length:1296},(_,n)=>[Math.floor(n/216),Math.floor(n/36)%6,Math.floor(n/6)%6,n%6]);
 // 判色规则固定为按数量匹配（count）：游戏按剩余数量消耗式匹配黄色
 // （实拍样张 雷风风风/黄绿黄红 在 presence 下无解，v1.2.0 起删除 presence 分支）
@@ -34,5 +36,5 @@ function createSolver(){
   }
   return {matrix,choose};
 }
-export { symbols, codes, feedback, createSolver };
+export { runeKeys, codes, feedback, createSolver };
 

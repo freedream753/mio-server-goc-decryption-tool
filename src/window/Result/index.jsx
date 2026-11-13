@@ -39,6 +39,10 @@ export default function Result() {
     const { t } = useTranslation();
     const [tab, setTab] = useState('wave');
     const [cropActive, setCropActive] = useState(false);
+    // 裁切前置提示（v1.4.0）：窗口内操作（识别/扫描/西蒙启动）在未开裁切时被
+    // 后端拒绝并广播 crop_required，前端展示提示文案并标红裁切按钮；
+    // 裁切模式生效（crop_state=true）后自动清除
+    const [cropAlert, setCropAlert] = useState(false);
     // 最近一次符文识别的失败信息（ok=false 时展示在页签下方，成功后清除）
     const [runeError, setRuneError] = useState('');
     const rootRef = useRef(null);
@@ -46,9 +50,12 @@ export default function Result() {
     // 西蒙录制运行状态镜像：切到非西蒙页签时自动暂停录制用
     const simonRunningRef = useRef(false);
 
-    // 切页统一入口：西蒙录制中切到校准/解密页签 → 自动暂停（录制仅限西蒙页签可见）
+    // 切页统一入口：切到西蒙页签 → 自动启动自动模式识别（状态文字驱动采集）；
+    // 切到校准/解密页签 → 自动暂停（录制仅限西蒙页签可见）
     const changeTab = (next) => {
-        if (next !== 'simon' && simonRunningRef.current) {
+        if (next === 'simon') {
+            if (!simonRunningRef.current) invoke('simon_start_auto').catch(() => {});
+        } else if (simonRunningRef.current) {
             invoke('simon_stop').catch(() => {});
         }
         setTab(next);
@@ -60,7 +67,9 @@ export default function Result() {
     const applyPayload = (payload) => {
         if (!payload) return;
         if (!payload.ok) {
-            setRuneError(payload.msg || t('result.rune_scan_failed'));
+            // 失败原因码优先走多语言文案（result.rune_err.<code>），未知码/旧 payload 回退后端 msg 原文
+            const fallback = payload.msg || t('result.rune_scan_failed');
+            setRuneError(payload.code ? t(`result.rune_err.${payload.code}`, { defaultValue: fallback }) : fallback);
             changeTab('cipher');
             return;
         }
@@ -107,12 +116,18 @@ export default function Result() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 全局裁切模式状态：挂载拉取一次（防竞态）+ 监听变更，按钮随之切换
+    // 全局裁切模式状态：挂载拉取一次（防竞态）+ 监听变更，按钮随之切换；
+    // 窗口操作被裁切门控拒绝（crop_required）时展示提示并标红按钮
     useEffect(() => {
         invoke('get_crop_state').then(setCropActive).catch(() => {});
-        const un = listen('crop_state', (e) => setCropActive(!!e.payload));
+        const un = listen('crop_state', (e) => {
+            setCropActive(!!e.payload);
+            if (e.payload) setCropAlert(false);
+        });
+        const unRequired = listen('crop_required', () => setCropAlert(true));
         return () => {
             un.then((f) => f());
+            unRequired.then((f) => f());
         };
     }, []);
 
@@ -162,8 +177,8 @@ export default function Result() {
                 <span className="result-grip" data-tauri-drag-region title={t('result.drag')}>⠿</span>
                 {/* 裁切模式开关（v1.2.7）：激活时图标实心 + 橙色，悬停看说明 */}
                 <span
-                    className={`result-ocr ${cropActive ? 'is-active' : ''}`}
-                    title={cropActive ? t('result.crop_off') : t('result.crop_on')}
+                    className={`result-ocr ${cropActive ? 'is-active' : ''} ${cropAlert && !cropActive ? 'is-alert' : ''}`}
+                    title={cropActive ? t('result.crop_off') : t('result.crop_required')}
                     onClick={toggleCrop}
                 >
                     {cropActive ? (
@@ -198,6 +213,9 @@ export default function Result() {
 
             {/* 符文识别失败提示：挂载拉取/热键触发的 ok=false payload 都会落到这里 */}
             {runeError && <p className="lvl-error rune-scan-error">{runeError}</p>}
+
+            {/* 裁切前置提示（v1.4.0）：窗口操作在未开裁切时被后端拒绝后的引导文案 */}
+            {cropAlert && !cropActive && <p className="lvl-error rune-scan-error">{t('result.crop_required')}</p>}
 
             <div className={`lvl-wrap ${tab === 'wave' ? '' : 'is-hidden'}`}><WavePage /></div>
             <div className={`lvl-wrap ${tab === 'simon' ? '' : 'is-hidden'}`}><SimonPage /></div>

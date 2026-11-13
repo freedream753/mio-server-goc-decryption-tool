@@ -150,7 +150,7 @@ fn main() {
             get_rune_scan, rune_recognize, show_result_window, hide_result_window, set_result_size, update_shortcut,
             crop_select, crop_clear, get_crop_state,
             get_wave_scan, wave_scan_cmd, wave_select_region,
-            simon_start, simon_stop, get_simon_steps, get_simon_state
+            simon_start, simon_start_auto, simon_stop, get_simon_steps, get_simon_state
         ])
         .on_system_tray_event(tray_event_handler)
         .build(tauri::generate_context!())

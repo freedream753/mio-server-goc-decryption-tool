@@ -17,7 +17,8 @@ use std::sync::Mutex;
 
 // 全屏截图缓存名（截图管线写入）
 const FULL_SHOT: &str = "pot_screenshot_full.png";
-// 手动框选区域截图缓存名（截图窗口 cut_image 命令写入）
+// 手动框选区域截图缓存名（截图窗口 cut_image 命令写入，v1.4.0 随手动框选封存）
+#[cfg(feature = "legacy-fullscreen")]
 const CUT_SHOT: &str = "pot_screenshot_cut.png";
 
 // 最近一次求解结果：助手窗口前端挂载后经 get_wave_scan 拉取（防 emit 竞态）
@@ -70,8 +71,14 @@ fn notify_result(payload: Value) {
     }
 }
 
-// 热键 / 窗口按钮主入口：全屏截图 + 结构定位
+// 热键 / 窗口按钮主入口。v1.4.0 起识别只认裁切区域：未开裁切时先拉起框选
+// （AFTER_CROP 记录意图），框选完成后自动进入求解
 pub fn wave_scan() {
+    if crate::window::crop_region().is_none() {
+        info!("[wave] 未开启裁切模式：先框选裁切区，完成后自动求解");
+        crate::window::begin_crop_selection("wave");
+        return;
+    }
     if WAVE_IN_FLIGHT
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -92,26 +99,34 @@ pub fn wave_scan() {
     });
 }
 
-// 手动框选完成入口（window.rs 按 SHOT_PURPOSE="wave" 派发）：对用户框选的
-// 区域截图跑同一求解管线。结果窗口在框选前已被隐藏，此处恢复显示。
+// 手动框选完成入口（window.rs 按 SHOT_PURPOSE="wave" 派发）：
+// v1.4.0 封存——手动框选属全屏实现，默认不编入构建（legacy-fullscreen 特性可恢复）。
+// 所有识别统一先经全局裁切模式
 pub fn on_region_selected() {
-    if WAVE_IN_FLIGHT
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
+    #[cfg(feature = "legacy-fullscreen")]
     {
-        info!("[wave] 已有求解任务进行中，忽略本次框选触发");
-        return;
-    }
-    std::thread::spawn(move || {
-        let payload = analyze(false, CUT_SHOT, true);
-        WAVE_IN_FLIGHT.store(false, Ordering::SeqCst);
-        *scan_lock() = Some(payload.clone());
-        if let Some(app) = APP.get().cloned() {
-            let _ = app.run_on_main_thread(move || {
-                notify_result(payload.clone());
-            });
+        if WAVE_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            info!("[wave] 已有求解任务进行中，忽略本次框选触发");
+            return;
         }
-    });
+        std::thread::spawn(move || {
+            let payload = analyze(false, CUT_SHOT, true);
+            WAVE_IN_FLIGHT.store(false, Ordering::SeqCst);
+            *scan_lock() = Some(payload.clone());
+            if let Some(app) = APP.get().cloned() {
+                let _ = app.run_on_main_thread(move || {
+                    notify_result(payload.clone());
+                });
+            }
+        });
+    }
+    #[cfg(not(feature = "legacy-fullscreen"))]
+    {
+        warn!("[wave] 手动框选已封存（全屏实现弃用），请使用全局裁切模式");
+    }
 }
 
 fn analyze(capture: bool, shot: &str, manual: bool) -> Value {
@@ -732,8 +747,10 @@ mod tests {
         }
     }
 
-    // 手动框选模式回归：从全屏干扰样张中裁出画布附近区域（模拟玩家框选，
-    // 543x520 小图），放宽门槛后应求解成功且滑块与全屏模式一致
+    // 手动框选模式回归（v1.4.0 随手动框选入口一同封存，仅 legacy-fullscreen 编译）：
+    // 从全屏干扰样张中裁出画布附近区域（模拟玩家框选，543x520 小图），
+    // 放宽门槛后应求解成功且滑块与全屏模式一致
+    #[cfg(feature = "legacy-fullscreen")]
     #[test]
     fn wave_scan_manual_region() {
         let bytes = include_bytes!("../tests/fixtures/level1-wave-fullscreen-overlay.png");

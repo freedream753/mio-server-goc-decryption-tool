@@ -93,28 +93,14 @@ pub fn font_list() -> Result<Vec<String>, Error> {
     Ok(source.all_families()?)
 }
 
-// ---------------- 全局裁切模式（v1.2.7） ----------------
+// ---------------- 全局裁切模式（v1.2.7；v1.4.0 起为唯一识别前提） ----------------
 // 结果窗口标题旁按钮的两个状态：框选（进入裁切模式）/ 取消裁切模式。
 // 进入：置派发用途 → 隐藏结果窗口 → 拉全屏框选窗，框选完成后由 window.rs 的
 // crop_selected 落定 CROP_REGION 并浮现置顶点击穿透指示框。
-// 窗口创建必须挪到独立线程：在 tauri 命令（IPC 回调）上下文里同步创建
-// WebView2 窗口会发生重入，协议请求管线被卡死（应用假死）。
 #[tauri::command]
 pub fn crop_select() {
-    // PURPOSE_IO 串行化「设置用途→起线程」段：try_lock 失败说明已有框选流程
-    // 正在设置用途/拉起截图窗，放弃本次触发，避免 SHOT_PURPOSE 全局单值被
-    // 覆盖后把 success 派发到错误管线（crop/wave 共用同一截图窗口）
-    let _io = match crate::window::PURPOSE_IO.try_lock() {
-        Ok(g) => g,
-        Err(_) => {
-            warn!("[crop] 已有框选流程在途，忽略本次触发");
-            return;
-        }
-    };
-    crate::window::set_shot_purpose("crop");
-    // 临时隐藏（不重置定位标志）：框选完成后窗口原位显示，不重定向到鼠标
-    crate::window::hide_result_window_temp();
-    std::thread::spawn(crate::window::ocr_recognize);
+    // 与热键「未开裁切先框选」共用同一入口；窗口按钮触发无后续动作
+    crate::window::begin_crop_selection("");
 }
 
 #[tauri::command]
@@ -134,9 +120,13 @@ pub fn get_rune_scan() -> Option<serde_json::Value> {
     crate::runes::RUNE_SCAN.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-// 解密页「识别」按钮：与热键 Alt+V 同一入口（内部起线程，快速返回）
+// 解密页「识别」按钮：与热键 Alt+V 同一入口（内部起线程，快速返回）。
+// v1.4.0 窗口内操作门控：未开裁切不代拉框选，发 crop_required 由前端提示
 #[tauri::command]
 pub fn rune_recognize() {
+    if !crate::window::require_crop_for_window() {
+        return;
+    }
     crate::runes::rune_scan();
 }
 
@@ -167,37 +157,62 @@ pub fn get_wave_scan() -> Option<serde_json::Value> {
     crate::wave::WAVE_SCAN.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-// 第一关：波形求解（热键 Alt+X 同一入口）
+// 第一关：波形求解（热键 Alt+X 同一入口）。v1.4.0 窗口内操作门控：
+// 未开裁切不代拉框选，发 crop_required 由前端提示
 #[tauri::command]
 pub fn wave_scan_cmd() {
+    if !crate::window::require_crop_for_window() {
+        return;
+    }
     crate::wave::wave_scan();
 }
 
 // 第一关：手动框选波形画布区域求解（自动定位被遮挡/干扰时的降级入口）：
-// 置派发用途 → 隐藏结果窗口（不出现在截图里）→ 拉全屏框选窗，
-// 框选完成后 success 事件派发到 wave::on_region_selected
+// v1.4.0 封存——手动框选属全屏实现，默认不编入构建（legacy-fullscreen 特性可恢复）。
+// 所有识别统一先经全局裁切模式
 #[tauri::command]
 pub fn wave_select_region() {
-    // PURPOSE_IO 串行化「设置用途→起线程」段（与 crop_select 同一把锁）：
-    // try_lock 失败说明已有框选流程在途，放弃本次触发防止用途值被覆盖
-    let _io = match crate::window::PURPOSE_IO.try_lock() {
-        Ok(g) => g,
-        Err(_) => {
-            warn!("[wave] 已有框选流程在途，忽略本次触发");
-            return;
-        }
-    };
-    crate::window::set_shot_purpose("wave");
-    // 临时隐藏（不重置定位标志）：框选完成后窗口原位显示，不重定向到鼠标
-    crate::window::hide_result_window_temp();
-    std::thread::spawn(crate::window::ocr_recognize);
+    #[cfg(feature = "legacy-fullscreen")]
+    {
+        // PURPOSE_IO 串行化「设置用途→起线程」段（与 crop_select 同一把锁）：
+        // try_lock 失败说明已有框选流程在途，放弃本次触发防止用途值被覆盖
+        let _io = match crate::window::PURPOSE_IO.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                warn!("[wave] 已有框选流程在途，忽略本次触发");
+                return;
+            }
+        };
+        crate::window::set_shot_purpose("wave");
+        // 临时隐藏（不重置定位标志）：框选完成后窗口原位显示，不重定向到鼠标
+        crate::window::hide_result_window_temp();
+        std::thread::spawn(crate::window::ocr_recognize);
+    }
+    #[cfg(not(feature = "legacy-fullscreen"))]
+    {
+        warn!("[wave] 手动框选已封存（全屏实现弃用），请使用全局裁切模式");
+    }
 }
 
 // 第二关：西蒙符印录制开始/停止 + 步骤拉取
-// start 带 target：4/5/6 = 第一/二/三关（录满自动暂停），0 = 自由录制
+// start 带 target：仅 0 = 自由录制（原 4/5/6 三关式已移除，自动采集走 simon_start_auto）
+// v1.4.0 窗口内操作门控：未开裁切不代拉框选，发 crop_required 由前端提示
 #[tauri::command]
 pub fn simon_start(target: usize) {
+    if !crate::window::require_crop_for_window() {
+        return;
+    }
     crate::simon::simon_start_with_target(target);
+}
+
+// 自动模式：状态区文字（开始/正在播放/轮次X/3/错误）驱动相位机，见 simon::auto_loop
+// v1.4.0 窗口内操作门控：热键入口（simon_toggle）未开裁切时先拉框选，窗口入口只提示
+#[tauri::command]
+pub fn simon_start_auto() {
+    if !crate::window::require_crop_for_window() {
+        return;
+    }
+    crate::simon::simon_start_auto();
 }
 
 #[tauri::command]

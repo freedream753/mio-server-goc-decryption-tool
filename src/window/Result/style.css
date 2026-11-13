@@ -102,6 +102,19 @@ body,
     border-color: #ffb35c;
 }
 
+/* 裁切前置警示态（v1.4.0）：窗口操作在未开裁切时被拒绝——红色 + 脉冲闪烁引导 */
+.result-ocr.is-alert {
+    color: #ffffff;
+    background: #e5484d;
+    border-color: #ff7b80;
+    animation: ocr-alert-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes ocr-alert-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
 .result-title {
     flex: 1;
     font-weight: 700;
@@ -384,20 +397,44 @@ body,
     font-variant-numeric: tabular-nums;
 }
 
-/* 第二关 步骤序列 */
-.simon-steps {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+/* 第二关 3×2 步骤格（与游戏同布局：上排火水风/下排土雷光），
+   格子中心大字标该符文亮起的顺序序号 */
+.simon-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
 }
 
-.simon-step {
+.simon-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 10px 4px;
     background: #182a44;
     border: 1px solid rgba(57, 126, 172, 0.6);
-    border-radius: 5px;
-    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.simon-tile-name {
     font-size: 14px;
     color: #edf6ff;
+}
+
+.simon-tile-seq {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #7dd3fc;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 未亮起的格子：占位符弱化显示 */
+.simon-tile-seq.is-empty {
+    font-size: 14px;
+    font-weight: 400;
+    color: #527198;
 }
 
 /* 第三关 密码破解：4 反馈框 + 6 符文选项。

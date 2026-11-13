@@ -51,6 +51,23 @@ fn apply_crop_region(img: image::RgbaImage, origin_x: i32, origin_y: i32) -> ima
     .to_image()
 }
 
+// ---------------- 裁切归一化（v1.4.0） ----------------
+// 识别统一走裁切模式后，玩家框选区域的物理分辨率差异极大（768p 笔记本 ~ 4K）。
+// 统一缩放到同一宽度后，三条管线的几何最小阈值、OCR 画布规模、西蒙瓦片尺寸
+// 都落在同一量级，消除「分辨率不同 → 误差率不同」的问题。等比缩放只改尺寸
+// 不改内容；1920 = 最常见的游戏窗口宽度（1080p 全屏）：主流玩家零缩放，
+// 2K/4K 缩小（顺带降低高频管线的每帧开销），小窗放大。
+pub const NORMALIZE_WIDTH: u32 = 1920;
+
+fn normalize_width(img: image::RgbaImage, filter: image::imageops::FilterType) -> image::RgbaImage {
+    let (w, h) = img.dimensions();
+    if w == NORMALIZE_WIDTH || w == 0 || h == 0 {
+        return img;
+    }
+    let th = ((h as u64 * NORMALIZE_WIDTH as u64) / w as u64).max(1) as u32;
+    image::imageops::resize(&img, NORMALIZE_WIDTH, th, filter)
+}
+
 // 鼠标坐标 (mx, my) 命中的显示器：返回显示器对象与原点+尺寸（物理像素），
 // 两处截图管线共用同一套命中循环；坐标在所有显示器之外时返回 None。
 fn monitor_at(mx: i32, my: i32) -> Option<(Screen, i32, i32, i32, i32)> {
@@ -88,7 +105,10 @@ pub fn capture_fullscreen() -> Result<(), String> {
     let raw = image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().clone())
         .ok_or_else(|| "截图缓冲尺寸不符".to_string())?;
     let cropped = apply_crop_region(raw, dx, dy);
-    let buf = to_png(&DynamicImage::ImageRgba8(cropped))?;
+    // 单次识别管线用高质量滤波：延迟不敏感，符文模板匹配/波形像素统计对
+    // 插值平滑敏感，缩放质量优先
+    let normalized = normalize_width(cropped, image::imageops::FilterType::Triangle);
+    let buf = to_png(&DynamicImage::ImageRgba8(normalized))?;
     let path = cache_file("pot_screenshot_full.png")?;
     let _io = SHOT_IO.lock().unwrap_or_else(|e| e.into_inner());
     std::fs::write(&path, buf).map_err(|e| e.to_string())?;
@@ -116,8 +136,13 @@ pub fn capture_monitor_to_mem() -> Result<image::RgbaImage, String> {
     let (w, h) = (img.width(), img.height());
     let raw = img.rgba().clone();
     let img = image::RgbaImage::from_raw(w, h, raw).ok_or_else(|| "截图缓冲尺寸不符".into());
-    // 裁切模式生效时只保留框选区域（高频轮询管线同样受益：图更小、检测更快）
-    return img.map(|v| apply_crop_region(v, dx, dy));
+    // 裁切模式生效时只保留框选区域（高频轮询管线同样受益：图更小、检测更快），
+    // 并归一化到统一宽度。最近邻滤波：西蒙帧循环 20ms 周期内缩放必须近乎零
+    // 开销，且亮起检测全是相对中位数统计（最近邻不改变像素值分布）；OCR 带
+    // 随后由 ocr_prep 以 CatmullRom 重放大，不受最近邻锯齿影响
+    return img.map(|v| {
+        normalize_width(apply_crop_region(v, dx, dy), image::imageops::FilterType::Nearest)
+    });
 }
 
 // 读取缓存截图。按内容嗅探格式（兼容测试时直接拷入的 JPG），不依赖扩展名

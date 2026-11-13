@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api';
 import { listen } from '@tauri-apps/api/event';
 import { Trans, useTranslation } from 'react-i18next';
-import { codes, symbols } from '../../utils/runes';
+import { codes, runeKeys } from '../../utils/runes';
 import {
     appendRecord,
     loadSession,
@@ -17,12 +17,10 @@ import {
     undoLast,
 } from '../../utils/rune-store';
 
-const SYMBOL_LIST = [...symbols];
 // 反馈色索引（与 payload 约定一致 0=红 1=黄 2=绿）→ i18n key 后缀，显示时经 result.color.* 取本地化名
 const COLOR_KEYS = ['red', 'yellow', 'green'];
-// 第三关反馈色循环节奏：null → 绿(2) → 红(0) → 黄(1) → null
+// 第三关反馈色循环节奏（v1.2.9 默认全绿，无空档）：绿(2) → 红(0) → 黄(1) → 绿
 const COLOR_CYCLE = [2, 0, 1];
-const label = (index) => codes[index].map((i) => symbols[i]).join(' · ');
 
 // ---------------- 第一关 波形校准 ----------------
 
@@ -83,15 +81,13 @@ export function WavePage() {
     }, []);
 
     const scan = () => invoke('wave_scan_cmd').catch(() => {});
-    // 手动框选降级：隐藏本窗口 → 全屏框选波形画布 → 对选区跑同一求解管线
-    const selectRegion = () => invoke('wave_select_region').catch(() => {});
+    // 手动框选降级已封存（v1.4.0 全屏实现弃用）：识别统一走全局裁切模式
     const s = result?.sliders;
     return (
         <div className="lvl-body">
             <p className="lvl-desc">{t('result.wave.desc')}</p>
             <div className="lvl-row">
                 <button type="button" className="lvl-btn primary" onClick={scan}>{t('result.wave.scan')}</button>
-                <button type="button" className="lvl-btn" onClick={selectRegion}>{t('result.wave.select')}</button>
                 {result && !result.ok && <span className="lvl-error">{result.msg}</span>}
             </div>
             {result?.ok && s && (
@@ -126,27 +122,42 @@ export function WavePage() {
 
 // ---------------- 第二关 西蒙符印 ----------------
 
+// 西蒙 3×2 格子布局（上排 火水风、下排 土雷光，与 Rust 侧步骤 index 约定同序：
+// 显示经 result.rune.* 取本地化名（光在西蒙语境存在，单独补 light）
+const SIMON_KEYS = ['fire', 'water', 'wind', 'earth', 'thunder', 'light'];
+
 export function SimonPage() {
     const { t } = useTranslation();
     const [steps, setSteps] = useState([]);
     const [running, setRunning] = useState(false);
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
-    const [target, setTarget] = useState(0); // 0=自由 4/5/6=关卡
+    // 步骤列表同步代际号：只应用最后一次发起的 refetch 结果，防止并发
+    // invoke 的响应乱序返回时旧快照覆盖新列表
+    const syncSeq = useRef(0);
+    const syncSteps = () => {
+        const id = ++syncSeq.current;
+        invoke('get_simon_steps')
+            .then((s) => {
+                if (id === syncSeq.current) setSteps(s);
+            })
+            .catch(() => {});
+    };
 
     useEffect(() => {
-        invoke('get_simon_steps').then(setSteps).catch(() => {});
-        const unStep = listen('simon_step', (e) => {
-            setSteps((list) => (list.some((s) => s.seq === e.payload.seq) ? list : [...list, e.payload]));
-        });
+        syncSteps();
+        // simon_step 不做本地乐观追加：轮次截断会丢弃超量步骤，其已排队的
+        // step 事件若按 seq 去重追加会让格子短暂多显示一个后端不存在的序号；
+        // 统一走全量 refetch（本地 IPC 毫秒级），前端列表恒等于后端权威列表
+        const unStep = listen('simon_step', () => syncSteps());
         const unState = listen('simon_state', (e) => {
             setRunning(e.payload.running);
             setError(e.payload.error || '');
             setInfo(e.payload.info || '');
-            if (!e.payload.running) {
-                // 停止时以 Rust 侧 total 为准补齐（停止事件可能早于最后一帧的 step）
-                invoke('get_simon_steps').then(setSteps).catch(() => {});
-            }
+            // 每次状态事件都以 Rust 侧列表为准同步：自动模式切轮/出错时后端已
+            // 清空步骤并从 1 重新计数，本地旧列表不清会导致新一轮 seq 撞号；
+            // 停止时兼做补齐（停止事件可能早于最后一帧的 step）
+            syncSteps();
         });
         return () => {
             unStep.then((f) => f());
@@ -155,20 +166,21 @@ export function SimonPage() {
     }, []);
 
     const stop = () => invoke('simon_stop').catch(() => {});
-    const start = (t) => {
+    // 自动模式（默认）：后端按游戏状态区文字（开始/正在播放/轮次X/3/错误）自动
+    // 待机、采集与截断，切到本页签时由 index.jsx 自动启动；此处按钮为手动重启
+    const startAuto = () => {
         setSteps([]);
         setError('');
         setInfo('');
-        setTarget(t);
-        invoke('simon_start', { target: t }).catch(() => {});
+        invoke('simon_start_auto').catch(() => {});
     };
-
-    // 关卡按钮：第一/二/三关固定 4/5/6 步，录满自动暂停；自由 = 不限步数手动停
-    const LEVELS = [
-        [t('result.simon.level1'), 4],
-        [t('result.simon.level2'), 5],
-        [t('result.simon.level3'), 6],
-    ];
+    // 自由录制：不限步数、不识别状态文字，手动启停（原三关式 4/5/6 按钮已移除）
+    const startFree = () => {
+        setSteps([]);
+        setError('');
+        setInfo('');
+        invoke('simon_start', { target: 0 }).catch(() => {});
+    };
 
     return (
         <div className="lvl-body">
@@ -177,23 +189,36 @@ export function SimonPage() {
                 {running ? (
                     <>
                         <button type="button" className="lvl-btn primary is-danger" onClick={stop}>{t('result.simon.stop')}</button>
-                        <span className="lvl-hint">{t('result.simon.recording', { current: steps.length, total: target > 0 ? `/${target}` : '' })}</span>
+                        <span className="lvl-hint">{t('result.simon.recording', { current: steps.length, total: '' })}</span>
                     </>
                 ) : (
                     <>
-                        {LEVELS.map(([name, n]) => (
-                            <button type="button" key={n} className="lvl-btn" onClick={() => start(n)}>{name}</button>
-                        ))}
-                        <button type="button" className="lvl-btn primary" onClick={() => start(0)}>{t('result.simon.free')}</button>
+                        <button type="button" className="lvl-btn primary" onClick={startAuto}>{t('result.simon.auto')}</button>
+                        <button type="button" className="lvl-btn" onClick={startFree}>{t('result.simon.free')}</button>
                     </>
                 )}
                 {error && <span className="lvl-error">{error}</span>}
                 {!error && info && <span className="lvl-hint">{info}</span>}
             </div>
-            {!!steps.length && (
-                <div className="simon-steps">
-                    {steps.map((s) => <span className="simon-step" key={s.seq}>{s.seq}. {s.name}</span>)}
-                </div>
+            {/* 3×2 步骤格（与游戏同布局）：格子中心大字标该符文亮起的顺序序号，
+                录制中实时点亮；不用旧的「1. 名 2. 名」排序条 */}
+            {(!!steps.length || running) && (
+                <>
+                    <div className="simon-grid">
+                        {SIMON_KEYS.map((k, i) => {
+                            const seqs = steps.filter((s) => s.index === i).map((s) => s.seq);
+                            return (
+                                <div className="simon-tile" key={k}>
+                                    <span className="simon-tile-name">{t(`result.rune.${k}`)}</span>
+                                    <span className={`simon-tile-seq ${seqs.length ? '' : 'is-empty'}`}>
+                                        {seqs.length ? seqs.join(' · ') : '–'}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <p className="lvl-hint">{t('result.simon.grid_hint')}</p>
+                </>
             )}
             {!steps.length && !running && <p className="lvl-hint">{t('result.simon.empty')}</p>}
         </div>
@@ -214,7 +239,8 @@ export function CipherPage() {
     };
     const { history } = session;
     const [guess, setGuess] = useState([0, 1, 2, 3]);
-    const [colors, setColors] = useState([null, null, null, null]);
+    // 反馈标色默认全绿（v1.2.9）：不点击保留标色即视为绿，点按可修正
+    const [colors, setColors] = useState([2, 2, 2, 2]);
     const [selected, setSelected] = useState(0);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -223,6 +249,9 @@ export function CipherPage() {
     const newGameTimer = useRef(null);
     const serial = useRef(0);
     const sessionRef = useRef(session); // 当前会话序列化快照，广播去重用
+    // 符文名本地化（result.rune.*）：与 codes 序号同序，猜测槽/候选按钮/历史记录共用
+    const symbolList = runeKeys.map((k) => t(`result.rune.${k}`));
+    const label = (index) => codes[index].map((i) => symbolList[i]).join(' · ');
 
     useEffect(() => {
         const w = new Worker(new URL('../../utils/runes.worker.js', import.meta.url), { type: 'module' });
@@ -231,9 +260,9 @@ export function CipherPage() {
             if (data.id !== serial.current) return;
             setBusy(false);
             setError(data.error || '');
-            // 给出新的最优猜测，清空反馈方块等待用户录入
+            // 给出新的最优猜测，重置反馈方块为默认绿等待用户录入
             if (!data.error && data.guess != null) setGuess([...codes[data.guess]]);
-            setColors([null, null, null, null]);
+            setColors([2, 2, 2, 2]);
             setSelected(0);
         };
         w.onerror = () => {
@@ -274,10 +303,17 @@ export function CipherPage() {
         return () => window.removeEventListener(SESSION_EVENT, onChanged);
     }, []);
 
-    // 点反馈方块：循环 null → 绿 → 红 → 黄 → null，同时设为选中位
+    // 左键点反馈方块：循环 绿 → 红 → 黄，同时设为选中位
     const cycleColor = (i) => {
         setSelected(i);
         setColors((f) => f.map((v, j) => (j === i ? COLOR_CYCLE[(COLOR_CYCLE.indexOf(v) + 1) % COLOR_CYCLE.length] : v)));
+    };
+
+    // 中键=黄、右键=红：直接落到指定色（右键需拦下系统菜单）
+    const markColor = (i, c) => (e) => {
+        e.preventDefault();
+        setSelected(i);
+        setColors((f) => f.map((v, j) => (j === i ? c : v)));
     };
 
     // 点符文选项：改选中框符号并前进到下一框
@@ -286,9 +322,9 @@ export function CipherPage() {
         setSelected((s) => (s + 1) % 4);
     };
 
-    // 修正：反馈齐全才可点 → 写入历史 → worker 重算新推荐
+    // 修正：写入历史 → worker 重算新推荐（标色默认绿，无需再等齐全校验）
     const applyFix = () => {
-        if (busy || colors.includes(null)) return;
+        if (busy) return;
         const encoded = guess.reduce((n, v) => n * 6 + v, 0);
         const encodedColors = colors.reduce((n, v, i) => n + v * 3 ** i, 0);
         const { session: next, added } = appendRecord(loadSession(), { guess: encoded, result: encodedColors });
@@ -305,7 +341,7 @@ export function CipherPage() {
 
     const newGame = () => {
         setGuess([0, 1, 2, 3]);
-        setColors([null, null, null, null]);
+        setColors([2, 2, 2, 2]);
         setSelected(0);
         mutate(startNewGame);
         setBusy(true);
@@ -350,24 +386,25 @@ export function CipherPage() {
                     <button
                         type="button"
                         key={i}
-                        className={`cipher-slot ${selected === i ? 'is-selected' : ''} ${colors[i] != null ? `is-${colors[i]}` : ''}`}
+                        className={`cipher-slot ${selected === i ? 'is-selected' : ''} is-${colors[i]}`}
                         onClick={() => cycleColor(i)}
-                        title={colors[i] == null
-                            ? t('result.cipher.slot_hint')
-                            : t('result.cipher.slot_color', { color: t(`result.color.${COLOR_KEYS[colors[i]]}`) })}
+                        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+                        onAuxClick={markColor(i, 1)}
+                        onContextMenu={markColor(i, 0)}
+                        title={t('result.cipher.slot_color', { color: t(`result.color.${COLOR_KEYS[colors[i]]}`) })}
                     >
-                        <span className="cipher-symbol">{symbols[value]}</span>
-                        <span className="cipher-color-name">{colors[i] == null ? t('result.cipher.unmarked') : t(`result.color.${COLOR_KEYS[colors[i]]}`)}</span>
+                        <span className="cipher-symbol">{symbolList[value]}</span>
+                        <span className="cipher-color-name">{t(`result.color.${COLOR_KEYS[colors[i]]}`)}</span>
                     </button>
                 ))}
             </div>
             <div className="cipher-options">
-                {SYMBOL_LIST.map((s, n) => <button type="button" key={s} onClick={() => pickRune(n)} disabled={ended}>{s}</button>)}
+                {runeKeys.map((k, n) => <button type="button" key={k} onClick={() => pickRune(n)} disabled={ended}>{symbolList[n]}</button>)}
             </div>
             <button
                 type="button"
                 className="lvl-btn primary"
-                disabled={busy || ended || colors.includes(null)}
+                disabled={busy || ended}
                 onClick={applyFix}
             >{t('result.cipher.fix')}</button>
             {!!history.length && (

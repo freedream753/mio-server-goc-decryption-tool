@@ -13,16 +13,18 @@ use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use log::{info, warn};
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-// 全屏截图缓存名（截图管线写入）；手动框选缓存名（截图窗口 cut_image 写入）
+// 全屏截图缓存名（截图管线写入）；手动框选缓存名（截图窗口 cut_image 写入，已封存）
 const FULL_SHOT: &str = "pot_screenshot_full.png";
+#[cfg(feature = "legacy-fullscreen")]
 const CUT_SHOT: &str = "pot_screenshot_cut.png";
 
-// 符文名表：0=空 1=火 2=水 3=风 4=土 5=雷（与 src/utils/runes.js 的 symbols 同序）。
-// rune_name 与 rune_from_text 共用这一份（原先两处各自内联、内容一致）；注意与
-// simon.rs 的 SIMON_NAMES 语义不同（西蒙游戏是「火水风土雷光」六色，无「空」）
+// 符文名表：0=空 1=火 2=水 3=风 4=土 5=雷（与 src/utils/runes.js 的 runeKeys 同序，
+// 前端显示经 result.rune.* 取本地化名）。rune_name 与 rune_from_text 共用这一份
+// （原先两处各自内联、内容一致）；注意与 simon.rs 的 SIMON_NAMES 语义不同
+// （西蒙游戏是「火水风土雷光」六色，无「空」）
 const RUNE_NAMES: [&str; 6] = ["空", "火", "水", "风", "土", "雷"];
 
 // 最近一次扫描结果：结果窗口前端挂载后经 get_rune_scan 拉取，
@@ -35,8 +37,9 @@ static SCAN_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 // 手动框选去重：tauri v1 的 window.listen 不随窗口销毁清理，截图窗口反复新建
 // 后旧监听器残留累积，同一次框选会触发多次 success；300ms 内的重复触发忽略
-// （真实用户两次框选间隔远大于此）
-static LAST_MANUAL_TRIGGER: AtomicU64 = AtomicU64::new(0);
+// （真实用户两次框选间隔远大于此）。v1.4.0 随手动框选路径一同封存
+#[cfg(feature = "legacy-fullscreen")]
+static LAST_MANUAL_TRIGGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Rect {
@@ -55,27 +58,40 @@ struct Slot {
 
 // ---------------- 入口 ----------------
 
-// 热键 / 托盘 / HTTP 主入口：全屏截图 + 弹结果窗口
+// 热键 / 托盘 / HTTP 主入口。v1.4.0 起识别只认裁切区域：未开裁切时先拉起框选
+// （AFTER_CROP 记录意图），框选完成后自动进入识别
 pub fn rune_scan() {
+    if crate::window::crop_region().is_none() {
+        info!("[runes] 未开启裁切模式：先框选裁切区，完成后自动识别");
+        crate::window::begin_crop_selection("rune");
+        return;
+    }
     spawn(true, FULL_SHOT, "auto");
 }
 
-// 框选降级入口：结果窗口「OCR 框选」按钮 → window::ocr_recognize 拉框选窗 →
-// 框选完成后对 pot_screenshot_cut.png 跑同一识别，payload source 标 manual
+// 框选降级入口：v1.4.0 封存——手动框选属全屏实现，默认不编入构建
+// （legacy-fullscreen 特性可恢复）。所有识别统一先经全局裁切模式
 pub fn rune_scan_manual() {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let prev = LAST_MANUAL_TRIGGER.swap(now, Ordering::SeqCst);
-    if now.saturating_sub(prev) < 300 {
-        return;
+    #[cfg(feature = "legacy-fullscreen")]
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let prev = LAST_MANUAL_TRIGGER.swap(now, Ordering::SeqCst);
+        if now.saturating_sub(prev) < 300 {
+            return;
+        }
+        if SCAN_IN_FLIGHT.load(Ordering::SeqCst) {
+            info!("[runes] 已有识别任务进行中，忽略本次手动框选触发");
+            return;
+        }
+        spawn(false, CUT_SHOT, "manual");
     }
-    if SCAN_IN_FLIGHT.load(Ordering::SeqCst) {
-        info!("[runes] 已有识别任务进行中，忽略本次手动框选触发");
-        return;
+    #[cfg(not(feature = "legacy-fullscreen"))]
+    {
+        warn!("[runes] 手动框选已封存（全屏实现弃用），请使用全局裁切模式");
     }
-    spawn(false, CUT_SHOT, "manual");
 }
 
 fn spawn(capture: bool, shot: &'static str, source: &'static str) {
@@ -97,21 +113,22 @@ fn analyze(capture: bool, shot: &str, source: &str) -> Value {
     if capture {
         if let Err(e) = capture_fullscreen() {
             warn!("[runes] 全屏截图失败: {}", e);
-            return payload(false, &[], source, &format!("全屏截图失败：{}", e));
+            return payload(false, &[], source, &format!("全屏截图失败：{}", e), "capture_fail");
         }
     }
     let img = match load_screenshot(shot) {
         Ok(v) => v,
         Err(e) => {
             warn!("[runes] 截图读取失败: {}", e);
-            return payload(false, &[], source, &e);
+            return payload(false, &[], source, &e, "cache_read_fail");
         }
     };
     match scan_image(&img, source) {
         Ok(v) => v,
         Err(msg) => {
             warn!("[runes] 识别失败: {}", msg);
-            payload(false, &[], source, &msg)
+            // scan_image 当前唯一 Err 来源是 locate（未定位到符文框）
+            payload(false, &[], source, &msg, "slots_not_found")
         }
     }
 }
@@ -134,10 +151,10 @@ fn scan_image(img: &RgbaImage, source: &str) -> Result<Value, String> {
         );
         slots.push(Slot { rune, color });
     }
-    Ok(payload(true, &slots, source, ""))
+    Ok(payload(true, &slots, source, "", ""))
 }
 
-fn payload(ok: bool, slots: &[Slot], source: &str, msg: &str) -> Value {
+fn payload(ok: bool, slots: &[Slot], source: &str, msg: &str, code: &str) -> Value {
     json!({
         "ok": ok,
         "slots": slots
@@ -146,6 +163,8 @@ fn payload(ok: bool, slots: &[Slot], source: &str, msg: &str) -> Value {
             .collect::<Vec<Value>>(),
         "source": source,
         "msg": msg,
+        // 失败原因码：前端按 result.rune_err.<code> 出多语言文案，未知/空码回退 msg 原文
+        "code": code,
     })
 }
 

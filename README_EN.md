@@ -4,7 +4,7 @@
 
 **GMOD-RXSEND-MIO Server 5K Mode · GOC Rune Terminal Solver**
 
-Press `Alt + C` to capture the full screen, automatically recognize the four runes on the game panel and their feedback colors (red / yellow / green), record them into this round's history, and show the next recommended guess in a topmost window.
+A tray-resident solver for all three puzzle stages — **Calibration** (waveform), **Simon** (memory sequence) and **Decryption** (four runes). One hotkey captures and solves the panel automatically, fully offline.
 
 [![License](https://img.shields.io/badge/LICENSE-GPL--3.0-green.svg?style=for-the-badge)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/freedream753/mio-server-goc-decryption-tool?style=for-the-badge)](../../releases)
@@ -31,30 +31,37 @@ Press `Alt + C` to capture the full screen, automatically recognize the four run
 
 ## Features
 
-1. **Fully automatic rune recognition:** One keypress (`Alt + C`) captures the full screen, locates the four rune slots of the current guess, recognizes each rune (empty / fire / water / wind / earth / thunder) and each feedback color (red / yellow / green), and records the round automatically — no manual entry.
+1. **Three-stage solver:** The result window carries three tabs — Calibration, Simon and Decryption — triggered by the default hotkeys `Alt + X` (Calibration), `Alt + C` (Simon), `Alt + V` (Decryption), all remappable in settings.
 
-2. **Offline recognition:** Rune locating, border color sampling and glyph recognition all run locally — zero model downloads, zero network requests. A single portable exe that just works.
+2. **Calibration (stage 1 · waveform):** Automatically reads the waveform panel and gives the four slider answers (amplitude / frequency / phase / offset), plus an orange dual-sine calibration curve drawn to match the in-game target exactly.
 
-3. **Filter-immune color detection:** Feedback colors are decided by the relative color order of each rune frame's border instead of absolute RGB thresholds, so global color drift caused by NVIDIA Freestyle / in-game brightness filters does not break recognition.
+3. **Simon (stage 2 · memory sequence):** Fully automatic — detects the Start / Playing / Repeat states, records each round's lit sequence and advances round by round; you only follow the recommendation. A manual free mode is also kept.
 
-4. **Focus-stealing-free result window:** The result window is always on top and never steals game focus (WS_EX_NOACTIVATE). It shows the recognized panel and the next recommended guess, ready to copy with one click without interrupting your keystrokes.
+4. **Decryption (stage 3 · four runes):** `Alt + V` recognizes the board's runes and feedback colors (red / yellow / green) automatically; a candidate-first minimax strategy guarantees a solve within 4 submissions, with a self-learning dictionary to correct recognition errors.
 
-5. **Per-slot correction:** If a rune or color is misread, fix it slot by slot in the result window and the recommendation is recomputed; "undo this entry" and "new round" are available as a safety net.
+5. **Global crop mode:** Toggle with the corner-frame button in the result window header. After a one-time box selection, every capture pipeline processes only that region (auto-normalized to 1920-equivalent width) with a persistent orange indicator on screen; the indicator is excluded from screen capture so it never pollutes recognition.
 
-6. **Manual helper & region-select fallback:** The "Four Runes" window (tray / settings sidebar) stays for switching the color rule, entering history manually and joining mid-round; the box-select button in the result window recognizes a manually dragged screen region when automatic locating fails.
+6. **Offline recognition:** Everything runs on the Windows built-in OCR engine and pixel geometry analysis — zero model downloads, zero network requests. A single portable exe that just works.
+
+7. **Filter-immune detection:** Feedback colors and waveform locating use relative color-order / relative-luminance logic instead of absolute RGB thresholds, so color drift from NVIDIA Freestyle or in-game brightness filters does not break recognition.
+
+8. **Focus-stealing-free result window:** Always on top, never steals game focus (WS_EX_NOACTIVATE) and is excluded from screen capture (WDA_EXCLUDEFROMCAPTURE); answers copy with a single click.
+
+9. **Bilingual UI:** Built-in Simplified Chinese and English (including tray menu and rune names), switchable in settings.
 
 ## How It Works
 
 ```
-Alt + C full-screen capture
+Hotkey (Alt+X / Alt+C / Alt+V) triggers
     ↓
-Locate the four rune slots of the current guess (panel luminance / frame geometry)
+Screen capture (crop mode takes only the selected region, normalized to 1920 width)
     ↓
-Recognize 4 runes (empty / fire / water / wind / earth / thunder) + 4 feedback colors (red / yellow / green)
+Stage-specific pipeline:
+  · Calibration: waveform locating → structured parameter solving → slider answers + curve
+  · Simon: status-region phase check (idle/playing/repeat) → lit-cell recording → step sync
+  · Decryption: locate 4 rune frames → recognize runes + feedback colors → minimax next guess
     ↓
-Deduplicate against the current round, then append one history entry (localStorage key goc-rune-session-v1)
-    ↓
-Topmost, non-activating result window: recognized panel + next recommended guess, one-click copy
+Topmost, non-activating result window shows the answer, click to copy
 ```
 
 ## Download
@@ -63,30 +70,35 @@ Grab the single-file portable exe from the [Releases](../../releases) page:
 
 | File | Architecture |
 |---|---|
-| `GOC-Solver-v1.1.0-x64.exe` | 64-bit Intel / AMD |
+| `GOC-Solver-v1.1.0-x64.exe` | 64-bit Intel / AMD (most users) |
 | `GOC-Solver-v1.1.0-x86.exe` | 32-bit x86 |
-| `GOC-Solver-v1.1.0-arm64.exe` | ARM64 |
+| `GOC-Solver-v1.1.0-arm64.exe` | ARM64 (e.g. Surface Pro X) |
 
 Single file, no external DLL dependencies, fully offline.
 
 ## Usage
 
-1. Run the exe — it stays in the system tray
-2. Open the GOC rune terminal page and, for a new round, submit the recommended "empty, fire, water, wind" first
-3. After the game returns feedback, press `Alt + C`: the four runes and their feedback colors are recognized and recorded into this round
-4. The result window shows the recognized panel plus the next recommended guess; click the recommendation to copy it, and the round is reported as solved once everything is green
-5. The window auto-hides after a 10-second countdown (clicking to copy or dragging the window resets the timer; the countdown freezes while dragging)
-6. If something was misread, fix the runes / colors slot by slot in the result window and the recommendation is recomputed, or use "undo this entry"; switch the color rule or enter history manually in the "Four Runes" window
+1. Run the exe — it stays in the system tray; the tray menu opens the result window / settings page
+2. Enable **global crop mode** first (corner-frame button in the result window header): drag a selection around the puzzle panel, and all recognition will only look at that region
+3. Enter the corresponding stage and press the hotkey:
+   - `Alt + X` Calibration tab: shows the four slider answers and the calibration curve
+   - `Alt + C` Simon tab: fully automatic; the status area at the bottom shows the current round and the recorded sequence
+   - `Alt + V` Decryption tab: recognizes the four runes and feedback colors and shows the recommended guess, click to copy; failures show a red reason below the current tab instead of switching tabs
+4. If something is misread, fix it in the result window and recompute; the Decryption tab's self-learning dictionary (add / update / delete entries) keeps improving accuracy
 
-> Requirements: Windows 10 or later; glyph recognition relies on the system's built-in Chinese OCR language pack (zh-CN, included by default on Chinese-language Windows).
+> Requirements: Windows 10 2004 or later; OCR relies on the system's built-in Chinese language pack (zh-CN, included by default on Chinese-language Windows).
 
 ## Technical Details
 
-- **Rune recognition pipeline** (`src-tauri/src/`): full-screen capture → locate the four rune frames → sample the frame border to decide the feedback color → recognize the single-character rune; any slot that cannot be recognized is left empty and corrected in the result window
-- **Recommendation engine** (`src/utils/runes.js` + Web Worker): the 1296 candidate answers are filtered by the color rule (presence = yellow / count-based), yielding a next guess that is guaranteed to finish within four submissions
-- **Round history** (`src/utils/rune-session.js`): localStorage key `goc-rune-session-v1`, shared by the hotkey pipeline and the manual helper
-- **Result window** (`src-tauri/src/window.rs`): Tauri v1 + windows-rs adds the WS_EX_NOACTIVATE / SW_SHOWNA Win32 calls; the countdown freezes while the window is being dragged
-- **Triple-architecture builds:** x64 (x86_64-pc-windows-gnu), x86 / ARM64 (llvm-mingw gnullvm); all artifacts pass PE-header and DLL import-table checks (system libraries only)
+- **Recognition pipelines** (`src-tauri/src/`):
+  - `wave.rs` — structure-first staged waveform locating (dark threshold 30→45→60 with R²≥0.5 fallback) and full dual-sine parameter recovery
+  - `simon.rs` — status-region phase machine (idle / playing / repeat) with pure-pixel fast checks + a dedicated lit-cell capture thread, zero OCR cost during playback; 1-frame-dark clearing + 300ms refractory period supports same-cell double blinks
+  - `runes.rs` — rune frame locating (low-watermark vertical-band bridging) → relative border color-order feedback detection → template matching with OCR fallback for glyphs
+  - `solver.rs` — candidate-first minimax over 1296 candidates, first guess fixed to "empty-fire-water-wind", guaranteed solve within 4 submissions
+- **Global crop mode** (`window.rs` / `cmd.rs`): selection supports negative global coordinates (side monitors) and survives restart; hotkeys without crop mode first open a box-selection window and auto-dispatch after selection; all persistent windows are excluded from screen capture
+- **Recommendation engine** (`src/utils/runes.js` + Web Worker): fully local offline next-guess computation
+- **Internationalization** (`src/i18n/`): i18next with zh_CN / en_US locale packs; the Rust side only returns error codes, translations are rendered by the frontend per language
+- **Triple-architecture builds:** x64 (x86_64-pc-windows-gnu), x86 / ARM64 (llvm-mingw gnullvm); all artifacts pass PE-header and file-version checks with WebView2Loader statically linked — true single files
 
 ## Building from Source
 
@@ -95,45 +107,46 @@ pnpm install
 pnpm tauri build
 ```
 
-> **Path requirement**: both the source tree and `CARGO_TARGET_DIR` must live on a pure-ASCII path. If the path contains non-ASCII characters (e.g. Chinese), cargo normalizes it back to the real path and the linker (ld.exe) fails to find rlib artifacts. Place the repository on an ASCII path, or copy it to one for building (sync `public/` and `dist/` completely — missing images break the UI).
-
-For build notes and pitfalls, see [PLAN-v1.0.3-新版解题页面适配.md](./PLAN-v1.0.3-新版解题页面适配.md) (Chinese).
+> **Path requirement**: both the source tree and `CARGO_TARGET_DIR` must live on a pure-ASCII path. If the path contains non-ASCII characters (e.g. Chinese), cargo normalizes it back to the real path and the linker (ld.exe) fails to find rlib artifacts. Place the repository on an ASCII path, or point `CARGO_TARGET_DIR` at one.
 
 ## FAQ
 
 <details>
-<summary><b>Nothing happens when I press Alt + C?</b></summary>
+<summary><b>Nothing happens when I press the hotkey?</b></summary>
 
-Make sure the app is running in the tray, and that the game runs in borderless-windowed mode (not exclusive fullscreen) — the topmost window is invisible in exclusive fullscreen.
+Make sure the app is running in the tray, and that the game runs in borderless-windowed mode (not exclusive fullscreen) — the topmost window is invisible in exclusive fullscreen. If global crop mode has never been enabled, the hotkey first opens a box-selection window and runs the recognition automatically after you select the puzzle area.
 </details>
 
 <details>
-<summary><b>A rune or feedback color was misread?</b></summary>
+<summary><b>Recognition failed / red error text?</b></summary>
 
-The result window lists the four recognized runes and colors — click a slot to change it to the correct rune / color and the recommendation is recomputed automatically, or use "undo this entry" and retry. If the whole panel was misread, use the box-select button in the result window to drag-select the rune panel and recognize it again.
+The failure reason appears in red right below the current tab (e.g. "capture failed", "rune frames not found"). First check that the global crop selection covers the full puzzle panel; on 4K / high-DPI, raising the in-game UI scale significantly improves recognition.
 </details>
 
 <details>
 <summary><b>Recognition breaks with filters enabled?</b></summary>
 
-Feedback colors are judged by the relative order of frame border colors, which already adapts to luminance-type filters such as NVIDIA Freestyle / in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
+Detection uses relative color-order / relative-luminance logic, which already adapts to luminance-type filters such as NVIDIA Freestyle or in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
 </details>
 
 <details>
-<summary><b>Failing on 4K / high-resolution, or an "interface too small" hint?</b></summary>
+<summary><b>The window disappeared on another monitor?</b></summary>
 
-Recognition scales adaptively from the measured glyph height; if it still fails, use the box-select button in the result window to drag-select the full rune panel (all four runes and their frames) — small selections are upscaled before recognition. Raising the in-game UI scale also helps a lot.
+Dragging is restricted to the monitor where the window was summoned; to use it on another screen, close the window and press the hotkey again on that screen.
 </details>
 
 ## Changelog
 
-### v1.1.0 — Hotkey now runs automatic rune recognition
+### v1.1.0 — Three-stage solver + global crop mode
 
-1. **`Alt + C` re-wired:** full-screen capture → locate the four rune slots of the current guess → recognize 4 runes and 4 feedback colors → append the entry to this round's history → topmost window shows the next recommended guess
-2. **The tray "capture & recognize runes" entry runs the same pipeline:** hotkey, tray menu and the result window's box-select button all share one automatic flow
-3. **The result window now carries rune results:** recognized panel, recommended guess, per-slot correction, undo-entry and new-round
-4. **The manual helper is kept:** the "Four Runes" window keeps handling color-rule switching, manual entry and joining mid-round
-5. **The old cipher pipeline is gone:** card pixel locating, cipher-label parsing, shift decryption, the answer word list and self-learning corrections, plus the retired wasm OCR front-end and its dependencies
+All changes since v1.0.4 are merged into this release:
+
+1. **Calibration / Simon / Decryption assistants:** the result window becomes a three-tab layout; `Alt + X` / `Alt + C` / `Alt + V` trigger each stage's automatic recognition and solving, all integrated into one window
+2. **Fully automatic Simon mode:** state-machine driven (idle / playing / repeat), auto-detects the start button, records each round's lit sequence and advances by round with zero OCR cost during playback; supports same-cell double blinks, off-window pollution defense and 3+X round truncation
+3. **Decryption strategy upgrade:** the core algorithm is replaced with a minimax implementation (candidate-first, gamble on direct hit) — no probe guesses, first guess fixed to "empty-fire-water-wind", guaranteed solve within 4 submissions
+4. **Global crop mode:** after one box selection, all capture pipelines process only that region, normalized to 1920-equivalent width; the orange indicator is capture-excluded (WDA_EXCLUDEFROMCAPTURE); hotkeys without crop mode open a box-selection window first and auto-dispatch
+5. **Bilingual UI:** Simplified Chinese + English (tray menu and rune names included), with the other 17 locale packs removed; rune recognition failures are localized by error code
+6. **Stability fixes:** same-cell double blinks (1-frame-dark clearing + 300ms refractory), per-stage recording targets, serialized screenshot IO, generational-guard full refetch for simon steps, atomic AFTER_CROP handling, Win32 visibility check for the waveform window, failures no longer switch tabs, and more
 
 ### Previous versions
 
@@ -142,7 +155,7 @@ Recognition scales adaptively from the measured glyph height; if it still fails,
 - **v1.0.1** — statically linked WebView2Loader for a true single-file exe; triple-architecture release convention
 - **v1.0.0** — initial public release
 
-> Historical note: the v1.0.x cipher-decryption pipeline was removed entirely in v1.1.0 and no entry point for it remains. Full release notes at [Releases](../../releases).
+> Historical note: the v1.0.x cipher-recognition + Caesar-shift pipeline (for the legacy GOC puzzle) was superseded by the three-stage solver and fully removed during the v1.1.0 development cycle. Full release notes at [Releases](../../releases).
 
 ## License & Credits
 

@@ -30,8 +30,8 @@ pub fn update_tray(app_handle: tauri::AppHandle, mut language: String, _copy_mod
     info!("Update tray with language: {}", language);
     tray_handle
         .set_menu(match language.as_str() {
+            // v1.4.0 精简：仅 zh_cn 与 en 两套菜单（zh_tw 等历史值统一回退英文）
             "zh_cn" => tray_menu_zh_cn(),
-            "zh_tw" => tray_menu_zh_tw(),
             _ => tray_menu_en(),
         })
         .unwrap();
@@ -143,23 +143,6 @@ fn tray_menu_zh_cn() -> tauri::SystemTrayMenu {
     let config = CustomMenuItem::new("config", "偏好设置");
     let restart = CustomMenuItem::new("restart", "重启应用");
     let view_log = CustomMenuItem::new("view_log", "查看日志");
-    let quit = CustomMenuItem::new("quit", "退出");
-    SystemTrayMenu::new()
-        .add_item(ocr_recognize)
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_item(config)
-
-        .add_item(view_log)
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_item(restart)
-        .add_item(quit)
-}
-
-fn tray_menu_zh_tw() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截圖識別符文");
-    let config = CustomMenuItem::new("config", "偏好設定");
-    let restart = CustomMenuItem::new("restart", "重啓程式");
-    let view_log = CustomMenuItem::new("view_log", "查看日誌");
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
         .add_item(ocr_recognize)

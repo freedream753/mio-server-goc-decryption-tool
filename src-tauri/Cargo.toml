@@ -1,6 +1,6 @@
 [package]
 name = "goc-solver"
-version = "1.2.10"
+version = "1.1.0"
 description = "GOC Rune Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
@@ -51,3 +51,7 @@ window-shadows = "0.2"
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
+# 封存的全屏实现（v1.4.0 弃用）：手动框选降级路径（符文「OCR 框选」/ 波形「框选」
+# 画布）等绕过全局裁切模式的全屏识别入口。默认不编入构建，代码保留在原处以备恢复：
+# cargo build --features legacy-fullscreen
+legacy-fullscreen = []
