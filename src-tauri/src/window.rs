@@ -200,7 +200,8 @@ pub fn config_window() {
     // 设置窗口对屏幕捕获隐身（与结果/裁切指示窗同款，v1.4.0 全窗口覆盖）：
     // 设置窗可能被玩家留在游戏画面上方，被截进识别带会污染像素统计与 OCR——
     // 工具自有常显窗口一律隐身，识别管线不该看到自己
-    #[cfg(target_os = "windows")]
+    // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
+    #[cfg(all(target_os = "windows", not(feature = "record-visible")))]
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
@@ -334,7 +335,8 @@ fn screenshot_window() -> Window {
     let _ = window.set_always_on_top(true);
     // 框选覆盖窗同样对屏幕捕获隐身（v1.4.0）：西蒙录制等采集管线在框选进行期间
     // 仍可能在跑，覆盖窗自身（含其展示的截图画面）不应进入任何采集管线
-    #[cfg(target_os = "windows")]
+    // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
+    #[cfg(all(target_os = "windows", not(feature = "record-visible")))]
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
@@ -586,8 +588,12 @@ fn show_crop_overlay(region: (i32, i32, u32, u32)) {
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
-            SWP_SHOWWINDOW, WDA_EXCLUDEFROMCAPTURE,
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+        };
+        // record-visible 特殊构建（录制演示用途）不需要隐身导入
+        #[cfg(not(feature = "record-visible"))]
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
         };
         if let Ok(hwnd) = window.hwnd() {
             unsafe {
@@ -595,6 +601,8 @@ fn show_crop_overlay(region: (i32, i32, u32, u32)) {
                 // 指示窗对屏幕捕获隐身（Win10 2004+）：橙色边框/角标是工具自绘 UI，
                 // 若被截进画面，竖直橙线会让解密的彩色行带黏成巨带、西蒙的边缘
                 // 掩膜多出假跳变沿——识别管线不该看到自己的指示器
+                // record-visible 特殊构建跳过：恢复对 OBS/截图可见
+                #[cfg(not(feature = "record-visible"))]
                 if let Err(e) = SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE) {
                     warn!("SetWindowDisplayAffinity(crop) failed: {}", e);
                 }
@@ -714,17 +722,21 @@ pub fn get_or_create_result_window() -> Option<Window> {
                 // 表/提示文字）会落进西蒙状态区/按钮区识别带——窗口内容一变
                 // 就污染带内像素统计与 OCR（实机日志实证：状态区 OCR 读到了
                 // 自己窗口的「停止」按钮并误判相位、清空重录）
-                use windows::Win32::Foundation::HWND;
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-                };
-                if let Ok(hwnd) = v.hwnd() {
-                    unsafe {
-                        if let Err(e) = SetWindowDisplayAffinity(
-                            HWND(hwnd.0 as *mut _),
-                            WDA_EXCLUDEFROMCAPTURE,
-                        ) {
-                            warn!("SetWindowDisplayAffinity(result) failed: {}", e);
+                // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
+                #[cfg(not(feature = "record-visible"))]
+                {
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+                    };
+                    if let Ok(hwnd) = v.hwnd() {
+                        unsafe {
+                            if let Err(e) = SetWindowDisplayAffinity(
+                                HWND(hwnd.0 as *mut _),
+                                WDA_EXCLUDEFROMCAPTURE,
+                            ) {
+                                warn!("SetWindowDisplayAffinity(result) failed: {}", e);
+                            }
                         }
                     }
                 }

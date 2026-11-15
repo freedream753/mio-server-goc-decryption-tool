@@ -55,3 +55,7 @@ custom-protocol = ["tauri/custom-protocol"]
 # 画布）等绕过全局裁切模式的全屏识别入口。默认不编入构建，代码保留在原处以备恢复：
 # cargo build --features legacy-fullscreen
 legacy-fullscreen = []
+# 特殊版本开关：取消窗口对屏幕采集的隐身（WDA_EXCLUDEFROMCAPTURE），供 OBS/
+# 录屏录制工具 UI 使用。默认构建保持隐身（防识别自污染），仅录制演示用途构建：
+# cargo build --release --features record-visible --target x86_64-pc-windows-msvc
+record-visible = []
