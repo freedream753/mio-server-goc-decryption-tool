@@ -4,7 +4,7 @@
 
 **GMOD-RXSEND-MIO Server 5K Mode · GOC Rune Terminal Solver**
 
-**noocr lite branch** (v1.2.0-noocr): a tray-resident solver for two puzzle stages — **Calibration** (draw-to-fit) and **Decryption** (four runes) — with **no screen capture / OCR / screen recognition whatsoever**. Pure math, fully offline.
+**noocr lite branch** (v1.1.0-noocr): a tray-resident solver for two puzzle stages — **Calibration** (draw-to-fit) and **Decryption** (four runes) — with **no screen capture / OCR / screen recognition whatsoever**. Pure math, fully offline.
 
 [![License](https://img.shields.io/badge/LICENSE-GPL--3.0-green.svg?style=for-the-badge)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/freedream753/mio-server-goc-decryption-tool?style=for-the-badge)](../../releases)
@@ -34,7 +34,7 @@
 
 The mainline (`main` branch) captures the screen and uses the Windows built-in OCR to read the puzzle automatically. This branch shares the same core algorithms but **completely removes screen capture, crop mode, OCR and all screen-recognition paths**, replacing them with manual input / hand-drawn interaction — for users who don't need automatic recognition or want the tool to never touch the screen at all:
 
-| Capability | Mainline v1.1.0 | This branch v1.2.0-noocr |
+| Capability | Mainline v1.1.0 | This branch v1.1.0-noocr |
 |---|---|---|
 | Stage 1 Calibration | Auto-reads the waveform panel | Draw the target curve on a blank canvas → auto-fit the four sliders |
 | Stage 2 Simon | Fully automatic recording | Removed |
@@ -73,13 +73,13 @@ Decryption: enter guesses and feedback colors manually → minimax in a Web Work
 
 ## Download
 
-Grab the single-file portable exe from the [Releases](../../releases) page (choose the **v1.2.0-noocr** tag):
+Grab the single-file portable exe from the [Releases](../../releases) page (choose the **v1.1.0-noocr** tag):
 
 | File | Architecture |
 |---|---|
-| `GOC-Solver-v1.2.0-noocr-x64.exe` | 64-bit Intel / AMD (most users) |
-| `GOC-Solver-v1.2.0-noocr-x86.exe` | 32-bit x86 |
-| `GOC-Solver-v1.2.0-noocr-arm64.exe` | ARM64 (e.g. Surface Pro X) |
+| `GOC-Solver-v1.1.0-noocr-x64.exe` | 64-bit Intel / AMD (most users) |
+| `GOC-Solver-v1.1.0-noocr-x86.exe` | 32-bit x86 |
+| `GOC-Solver-v1.1.0-noocr-arm64.exe` | ARM64 (e.g. Surface Pro X) |
 
 > For automatic on-screen recognition use the mainline release [v1.1.0](../../releases/tag/v1.1.0).
 
@@ -131,7 +131,7 @@ Dragging is restricted to the monitor where the window was summoned; to use it o
 
 ## Changelog
 
-### v1.2.0-noocr — No-OCR lite branch
+### v1.1.0-noocr — No-OCR lite branch
 
 A lite branch derived from mainline v1.1.0 (`noocr` branch):
 

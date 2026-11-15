@@ -1,7 +1,7 @@
 {
     "name": "goc-solver",
     "private": true,
-    "version": "1.2.0-noocr",
+    "version": "1.1.0-noocr",
     "type": "module",
     "scripts": {
         "dev": "vite",

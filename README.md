@@ -4,7 +4,7 @@
 
 **GMOD-RXSEND-MIO 服务器 5K 模式 · GOC 奇术终端解题工具**
 
-**noocr 精简支线**（v1.2.0-noocr）：一个常驻托盘的两关解题助手——**校准**（画线拟合）、**解密**（四位符文），**不使用任何截图 / OCR / 屏幕识别**，纯算法计算，全程离线运行。
+**noocr 精简支线**（v1.1.0-noocr）：一个常驻托盘的两关解题助手——**校准**（画线拟合）、**解密**（四位符文），**不使用任何截图 / OCR / 屏幕识别**，纯算法计算，全程离线运行。
 
 [![License](https://img.shields.io/badge/LICENSE-GPL--3.0-green.svg?style=for-the-badge)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/freedream753/mio-server-goc-decryption-tool?style=for-the-badge)](../../releases)
@@ -34,7 +34,7 @@
 
 主线（`main` 分支）通过截屏 + 系统内置 OCR 自动识别游戏画面给出答案；本支线基于同一套核心算法，**完整移除了截图、裁切、OCR 与屏幕识别能力**，改为手动输入 / 手绘交互，适合不需要自动识别、或希望工具完全不接触屏幕内容的场景：
 
-| 能力 | 主线 v1.1.0 | 本支线 v1.2.0-noocr |
+| 能力 | 主线 v1.1.0 | 本支线 v1.1.0-noocr |
 |---|---|---|
 | 第一关 校准 | 自动识别波形面板 | 空白画布手绘目标曲线 → 自动拟合出四滑块 |
 | 第二关 西蒙 | 全自动录制序列 | 已移除 |
@@ -73,13 +73,13 @@
 
 ## 下载
 
-前往 [Releases](../../releases) 页面下载单文件免安装 exe（选择 **v1.2.0-noocr** 标签）：
+前往 [Releases](../../releases) 页面下载单文件免安装 exe（选择 **v1.1.0-noocr** 标签）：
 
 | 文件 | 架构 |
 |---|---|
-| `GOC-Solver-v1.2.0-noocr-x64.exe` | 64 位 Intel / AMD（绝大多数用户选这个） |
-| `GOC-Solver-v1.2.0-noocr-x86.exe` | 32 位 x86 |
-| `GOC-Solver-v1.2.0-noocr-arm64.exe` | ARM64（如 Surface Pro X） |
+| `GOC-Solver-v1.1.0-noocr-x64.exe` | 64 位 Intel / AMD（绝大多数用户选这个） |
+| `GOC-Solver-v1.1.0-noocr-x86.exe` | 32 位 x86 |
+| `GOC-Solver-v1.1.0-noocr-arm64.exe` | ARM64（如 Surface Pro X） |
 
 > 需要自动识别屏幕的完整功能请使用主线版本的 [v1.1.0](../../releases/tag/v1.1.0)。
 
@@ -131,7 +131,7 @@ pnpm tauri build
 
 ## 更新日志
 
-### v1.2.0-noocr · 不使用 OCR 支线
+### v1.1.0-noocr · 不使用 OCR 支线
 
 基于主线 v1.1.0 派生的精简支线（`noocr` 分支）：
 

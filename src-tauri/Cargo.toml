@@ -1,6 +1,6 @@
 [package]
 name = "goc-solver"
-version = "1.2.0-noocr"
+version = "1.1.0-noocr"
 description = "GOC Rune Solver"
 authors = ["pot-app"]
 license = "GPL-3.0-only"
