@@ -4,7 +4,7 @@
 
 **GMOD-RXSEND-MIO Server 5K Mode · GOC Rune Terminal Solver**
 
-A tray-resident solver for all three puzzle stages — **Calibration** (waveform), **Simon** (memory sequence) and **Decryption** (four runes). One hotkey captures and solves the panel automatically, fully offline.
+**noocr lite branch** (v1.2.0-noocr): a tray-resident solver for two puzzle stages — **Calibration** (draw-to-fit) and **Decryption** (four runes) — with **no screen capture / OCR / screen recognition whatsoever**. Pure math, fully offline.
 
 [![License](https://img.shields.io/badge/LICENSE-GPL--3.0-green.svg?style=for-the-badge)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/freedream753/mio-server-goc-decryption-tool?style=for-the-badge)](../../releases)
@@ -19,6 +19,7 @@ A tray-resident solver for all three puzzle stages — **Calibration** (waveform
 
 ## Table of Contents
 
+- [Differences from the Mainline](#differences-from-the-mainline)
 - [Features](#features)
 - [How It Works](#how-it-works)
 - [Download](#download)
@@ -29,75 +30,74 @@ A tray-resident solver for all three puzzle stages — **Calibration** (waveform
 - [Changelog](#changelog)
 - [License & Credits](#license--credits)
 
+## Differences from the Mainline
+
+The mainline (`main` branch) captures the screen and uses the Windows built-in OCR to read the puzzle automatically. This branch shares the same core algorithms but **completely removes screen capture, crop mode, OCR and all screen-recognition paths**, replacing them with manual input / hand-drawn interaction — for users who don't need automatic recognition or want the tool to never touch the screen at all:
+
+| Capability | Mainline v1.1.0 | This branch v1.2.0-noocr |
+|---|---|---|
+| Stage 1 Calibration | Auto-reads the waveform panel | Draw the target curve on a blank canvas → auto-fit the four sliders |
+| Stage 2 Simon | Fully automatic recording | Removed |
+| Stage 3 Decryption | Auto board recognition + minimax | Manual guess/color entry + same minimax engine |
+| Capture / OCR / crop mode | Yes | Fully removed — the app never reads the screen |
+
 ## Features
 
-1. **Three-stage solver:** The result window carries three tabs — Calibration, Simon and Decryption — triggered by the default hotkeys `Alt + X` (Calibration), `Alt + C` (Simon), `Alt + V` (Decryption), all remappable in settings.
+1. **Two-stage solver:** The result window carries two tabs — Calibration and Decryption — summoned by the default hotkeys `Alt + X` (Calibration) and `Alt + V` (Decryption). Both simply open the result window on the matching tab; all remappable in settings.
 
-2. **Calibration (stage 1 · waveform):** Automatically reads the waveform panel and gives the four slider answers (amplitude / frequency / phase / offset), plus an orange dual-sine calibration curve drawn to match the in-game target exactly.
+2. **Calibration (stage 1 · draw-to-fit):** Hold the mouse on the blank grid canvas and trace the in-game target curve from left to right. On release the backend fits a dual sine (fundamental + second harmonic) and outputs the four slider answers (amplitude / frequency / phase / offset) plus a fitted curve for comparison. Clear-and-redraw and re-fit are supported.
 
-3. **Simon (stage 2 · memory sequence):** Fully automatic — detects the Start / Playing / Repeat states, records each round's lit sequence and advances round by round; you only follow the recommendation. A manual free mode is also kept.
+3. **Decryption (stage 3 · four runes):** Pick the four runes manually and mark the feedback colors (red / yellow / green) after each submission; the candidate-first minimax strategy (first guess fixed to "empty-fire-water-wind") solves within 4 submissions. Recommendation, undo, history and a new game are all supported.
 
-4. **Decryption (stage 3 · four runes):** `Alt + V` recognizes the board's runes and feedback colors (red / yellow / green) automatically; a candidate-first minimax strategy guarantees a solve within 4 submissions, with a self-learning dictionary to correct recognition errors.
+4. **Zero screen reading:** The app contains no capture, OCR, crop or screen-recognition code path at all — it never reads a single pixel from the screen and only does math. It is also smaller (x64 ≈ 30MB vs ≈ 39MB on the mainline).
 
-5. **Global crop mode:** Toggle with the corner-frame button in the result window header. After a one-time box selection, every capture pipeline processes only that region (auto-normalized to 1920-equivalent width) with a persistent orange indicator on screen; the indicator is excluded from screen capture so it never pollutes recognition.
+5. **Focus-stealing-free result window:** Always on top, never steals game focus (WS_EX_NOACTIVATE); answers copy with a single click.
 
-6. **Offline recognition:** Everything runs on the Windows built-in OCR engine and pixel geometry analysis — zero model downloads, zero network requests. A single portable exe that just works.
+6. **Bilingual UI:** Built-in Simplified Chinese and English (including tray menu and rune names), switchable in settings.
 
-7. **Filter-immune detection:** Feedback colors and waveform locating use relative color-order / relative-luminance logic instead of absolute RGB thresholds, so color drift from NVIDIA Freestyle or in-game brightness filters does not break recognition.
-
-8. **Focus-stealing-free result window:** Always on top, never steals game focus (WS_EX_NOACTIVATE) and is excluded from screen capture (WDA_EXCLUDEFROMCAPTURE); answers copy with a single click.
-
-9. **Bilingual UI:** Built-in Simplified Chinese and English (including tray menu and rune names), switchable in settings.
+7. **Single-file offline:** No external DLL dependencies, zero network requests (the local HTTP endpoint exists only so external scripts can summon the window).
 
 ## How It Works
 
 ```
-Hotkey (Alt+X / Alt+C / Alt+V) triggers
+Hotkey (Alt+X / Alt+V) or tray menu opens the result window on the matching tab
     ↓
-Screen capture (crop mode takes only the selected region, normalized to 1920 width)
+Calibration: hold the mouse and trace the in-game target curve on the grid canvas
     ↓
-Stage-specific pipeline:
-  · Calibration: waveform locating → structured parameter solving → slider answers + curve
-  · Simon: status-region phase check (idle/playing/repeat) → lit-cell recording → step sync
-  · Decryption: locate 4 rune frames → recognize runes + feedback colors → minimax next guess
+Backend: even resampling → dual-sine grid search + linear least squares (R²≥0.5 check)
     ↓
-Topmost, non-activating result window shows the answer, click to copy
+Four slider answers + fitted curve preview, click to copy
+
+Decryption: enter guesses and feedback colors manually → minimax in a Web Worker → recommended submission
 ```
 
 ## Download
 
-Grab the single-file portable exe from the [Releases](../../releases) page:
+Grab the single-file portable exe from the [Releases](../../releases) page (choose the **v1.2.0-noocr** tag):
 
 | File | Architecture |
 |---|---|
-| `GOC-Solver-v1.1.0-x64.exe` | 64-bit Intel / AMD (most users) |
-| `GOC-Solver-v1.1.0-x86.exe` | 32-bit x86 |
-| `GOC-Solver-v1.1.0-arm64.exe` | ARM64 (e.g. Surface Pro X) |
+| `GOC-Solver-v1.2.0-noocr-x64.exe` | 64-bit Intel / AMD (most users) |
+| `GOC-Solver-v1.2.0-noocr-x86.exe` | 32-bit x86 |
+| `GOC-Solver-v1.2.0-noocr-arm64.exe` | ARM64 (e.g. Surface Pro X) |
 
-Single file, no external DLL dependencies, fully offline.
+> For automatic on-screen recognition use the mainline release [v1.1.0](../../releases/tag/v1.1.0).
 
 ## Usage
 
-1. Run the exe — it stays in the system tray; the tray menu opens the result window / settings page
-2. Enable **global crop mode** first (corner-frame button in the result window header): drag a selection around the puzzle panel, and all recognition will only look at that region
-3. Enter the corresponding stage and press the hotkey:
-   - `Alt + X` Calibration tab: shows the four slider answers and the calibration curve
-   - `Alt + C` Simon tab: fully automatic; the status area at the bottom shows the current round and the recorded sequence
-   - `Alt + V` Decryption tab: recognizes the four runes and feedback colors and shows the recommended guess, click to copy; failures show a red reason below the current tab instead of switching tabs
-4. If something is misread, fix it in the result window and recompute; the Decryption tab's self-learning dictionary (add / update / delete entries) keeps improving accuracy
+1. Run the exe — it stays in the system tray; the tray menu's "Open Solver" summons the result window and "Preferences" manages hotkeys / language / autostart
+2. Calibration (stage 1): press `Alt + X`, hold the mouse on the grid canvas and trace the in-game waveform from left to right — the four slider answers appear on release; poor tracing is rejected by the R² check
+3. Decryption (stage 3): press `Alt + V`, pick the four runes and mark feedback colors, submit the recommended guess and update colors until solved or a new game starts
+4. Close the result window (`Esc` or the × button) — the app stays in the tray
 
-> Requirements: Windows 10 2004 or later; OCR relies on the system's built-in Chinese language pack (zh-CN, included by default on Chinese-language Windows).
+> Requirements: Windows 10 or later; no OCR language pack needed.
 
 ## Technical Details
 
-- **Recognition pipelines** (`src-tauri/src/`):
-  - `wave.rs` — structure-first staged waveform locating (dark threshold 30→45→60 with R²≥0.5 fallback) and full dual-sine parameter recovery
-  - `simon.rs` — status-region phase machine (idle / playing / repeat) with pure-pixel fast checks + a dedicated lit-cell capture thread, zero OCR cost during playback; 1-frame-dark clearing + 300ms refractory period supports same-cell double blinks
-  - `runes.rs` — rune frame locating (low-watermark vertical-band bridging) → relative border color-order feedback detection → template matching with OCR fallback for glyphs
-  - `solver.rs` — candidate-first minimax over 1296 candidates, first guess fixed to "empty-fire-water-wind", guaranteed solve within 4 submissions
-- **Global crop mode** (`window.rs` / `cmd.rs`): selection supports negative global coordinates (side monitors) and survives restart; hotkeys without crop mode first open a box-selection window and auto-dispatch after selection; all persistent windows are excluded from screen capture
-- **Recommendation engine** (`src/utils/runes.js` + Web Worker): fully local offline next-guess computation
-- **Internationalization** (`src/i18n/`): i18next with zh_CN / en_US locale packs; the Rust side only returns error codes, translations are rendered by the frontend per language
+- **Waveform fitting kernel** (`src-tauri/src/wave.rs`): ported from the field-verified 11.9 `fit_two` — dual-sine (fundamental + second harmonic) grid search + linear least squares + coordinate-descent joint refinement; hand-drawn points are sorted by x, deduplicated and evenly resampled to 400 points before fitting so dense segments don't bias the frequency search; R²≥0.5 quality check; `to_sliders` maps back to 0–100 sliders
+- **Drawing canvas** (`src/window/Result/pages.jsx`): SVG viewBox 0–100 with `preserveAspectRatio="none"`; pointer events collect a normalized point set (x∈[0,1], y∈[-1,1] with y pointing up); the canvas overlays both the hand-drawn polyline and the fitted curve
+- **Recommendation engine** (`src/utils/runes.js` + Web Worker): candidate-first minimax over 1296 candidates, fully local, identical to the mainline
+- **Internationalization** (`src/i18n/`): i18next with zh_CN / en_US locale packs
 - **Triple-architecture builds:** x64 (x86_64-pc-windows-gnu), x86 / ARM64 (llvm-mingw gnullvm); all artifacts pass PE-header and file-version checks with WebView2Loader statically linked — true single files
 
 ## Building from Source
@@ -114,19 +114,13 @@ pnpm tauri build
 <details>
 <summary><b>Nothing happens when I press the hotkey?</b></summary>
 
-Make sure the app is running in the tray, and that the game runs in borderless-windowed mode (not exclusive fullscreen) — the topmost window is invisible in exclusive fullscreen. If global crop mode has never been enabled, the hotkey first opens a box-selection window and runs the recognition automatically after you select the puzzle area.
+Make sure the app is running in the tray. On this branch hotkeys only summon the result window on the matching tab — no recognition is triggered; also check other monitors in multi-display setups.
 </details>
 
 <details>
-<summary><b>Recognition failed / red error text?</b></summary>
+<summary><b>"Too few points" / "poor fit quality" on the Calibration tab?</b></summary>
 
-The failure reason appears in red right below the current tab (e.g. "capture failed", "rune frames not found"). First check that the global crop selection covers the full puzzle panel; on 4K / high-DPI, raising the in-game UI scale significantly improves recognition.
-</details>
-
-<details>
-<summary><b>Recognition breaks with filters enabled?</b></summary>
-
-Detection uses relative color-order / relative-luminance logic, which already adapts to luminance-type filters such as NVIDIA Freestyle or in-game brightness boosts. If a strong tint filter (e.g. night mode) still causes issues, please open an issue with a full-screen screenshot attached.
+Trace the curve across the full canvas width, from the far left to the far right, as close to the in-game target as possible (the fit requires R²≥0.5). The canvas overlays your polyline (blue) and the fitted curve (orange) — compare them and press "Re-fit".
 </details>
 
 <details>
@@ -137,30 +131,30 @@ Dragging is restricted to the monitor where the window was summoned; to use it o
 
 ## Changelog
 
-### v1.1.0 — Three-stage solver + global crop mode
+### v1.2.0-noocr — No-OCR lite branch
 
-All changes since v1.0.4 are merged into this release:
+A lite branch derived from mainline v1.1.0 (`noocr` branch):
 
-1. **Calibration / Simon / Decryption assistants:** the result window becomes a three-tab layout; `Alt + X` / `Alt + C` / `Alt + V` trigger each stage's automatic recognition and solving, all integrated into one window
-2. **Fully automatic Simon mode:** state-machine driven (idle / playing / repeat), auto-detects the start button, records each round's lit sequence and advances by round with zero OCR cost during playback; supports same-cell double blinks, off-window pollution defense and 3+X round truncation
-3. **Decryption strategy upgrade:** the core algorithm is replaced with a minimax implementation (candidate-first, gamble on direct hit) — no probe guesses, first guess fixed to "empty-fire-water-wind", guaranteed solve within 4 submissions
-4. **Global crop mode:** after one box selection, all capture pipelines process only that region, normalized to 1920-equivalent width; the orange indicator is capture-excluded (WDA_EXCLUDEFROMCAPTURE); hotkeys without crop mode open a box-selection window first and auto-dispatch
-5. **Bilingual UI:** Simplified Chinese + English (tray menu and rune names included), with the other 17 locale packs removed; rune recognition failures are localized by error code
-6. **Stability fixes:** same-cell double blinks (1-frame-dark clearing + 300ms refractory), per-stage recording targets, serialized screenshot IO, generational-guard full refetch for simon steps, atomic AFTER_CROP handling, Win32 visibility check for the waveform window, failures no longer switch tabs, and more
+1. **OCR and screen recognition fully removed:** capture pipelines, global crop mode, crop indicator, box-selection window, WinOCR wrapper and hotkey recognition paths are all deleted; the `solver.rs` / `runes.rs` / `simon.rs` / `screenshot.rs` modules are gone and the app never reads the screen
+2. **Stage 2 Simon removed:** tab, recording pipeline and the `Alt + C` hotkey are retired
+3. **Stage 1 redesigned as draw-to-fit:** blank grid canvas + pointer capture + backend `fit_points` (resampling + dual-sine `fit_two` + R² check), emitting the same payload as the mainline (four sliders + curve parameters)
+4. **Stage 3 keeps the core algorithm:** the frontend minimax engine is untouched; only the `rune_recognize` auto-recognition entry is removed, all input is manual
+5. **Entry points adjusted:** `Alt + X` / `Alt + V` summon the result window on the matching tab; the tray menu item becomes "Open Solver"; the local HTTP endpoint now only serves `/` (summon) and `/config`
+6. **Slimmer binaries:** capture/OCR dependencies removed, x64 down from 39MB to 30MB
 
-### Previous versions
+### Previous versions (mainline)
 
+- **v1.1.0** — three-stage solver + global crop mode (mainline latest)
 - **v1.0.4** — region-select fallback in the result window, high-resolution / 4K field adaptation
 - **v1.0.3** — system built-in OCR engine and topmost result window, label-driven decryption replacing the fixed shift
 - **v1.0.1** — statically linked WebView2Loader for a true single-file exe; triple-architecture release convention
 - **v1.0.0** — initial public release
 
-> Historical note: the v1.0.x cipher-recognition + Caesar-shift pipeline (for the legacy GOC puzzle) was superseded by the three-stage solver and fully removed during the v1.1.0 development cycle. Full release notes at [Releases](../../releases).
+> Full release notes at [Releases](../../releases).
 
 ## License & Credits
 
 This project is derived from [pot-app/pot-desktop](https://github.com/pot-app/pot-desktop), which is licensed under **GPL-3.0**. This project is therefore also released under **GPL-3.0**: you are free to use, study, modify, and distribute this software, but distributions must remain GPL-3.0, keep the original copyright and license notices, and make the complete modified source code available.
 
 - [Tauri](https://tauri.app) — cross-platform desktop app framework
-- [Windows.Media.Ocr](https://learn.microsoft.com/windows/uwp/audio-video-camera/imaging) — Windows built-in OCR
 - Designed by 中分神秘博士 (Dr. Mystery of the middle part) 🧪
