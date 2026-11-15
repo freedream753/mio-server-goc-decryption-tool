@@ -326,8 +326,8 @@ export default function General() {
                                     }}
                                 >
                                     <DropdownItem key='config'>{t('config.general.event.config')}</DropdownItem>
-                                    <DropdownItem key='ocr_recognize'>
-                                        {t('config.general.event.ocr_recognize')}
+                                    <DropdownItem key='open_solver'>
+                                        {t('config.general.event.open_solver')}
                                     </DropdownItem>
                                     <DropdownItem key='disable'>{t('config.general.event.disable')}</DropdownItem>
                                 </DropdownMenu>

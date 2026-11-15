@@ -1,5 +1,4 @@
 use crate::config::{get, set};
-use crate::runes::rune_scan;
 use crate::window::config_window;
 use log::{info, warn};
 use tauri::CustomMenuItem;
@@ -46,7 +45,7 @@ pub fn tray_event_handler<'a>(app: &'a AppHandle, event: SystemTrayEvent) {
         #[cfg(target_os = "windows")]
         SystemTrayEvent::LeftClick { .. } => on_tray_click(),
         SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
-            "ocr_recognize" => on_ocr_recognize_click(),
+            "open_solver" => on_open_solver_click(),
             "config" => on_config_click(),
             "view_log" => on_view_log_click(app),
             "restart" => on_restart_click(app),
@@ -72,14 +71,15 @@ fn on_tray_click() {
     };
     match event.as_str() {
         "config" => config_window(),
-        "ocr_recognize" => rune_scan(),
+        "open_solver" => crate::window::open_result_tab("wave"),
         "disable" => {}
+        // 旧配置值 ocr_recognize 已退役：落默认分支（打开偏好设置）
         _ => config_window(),
     }
 }
 
-fn on_ocr_recognize_click() {
-    rune_scan();
+fn on_open_solver_click() {
+    crate::window::open_result_tab("wave");
 }
 
 fn on_config_click() {
@@ -122,13 +122,13 @@ fn on_quit_click(app: &AppHandle) {
 }
 
 fn tray_menu_en() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "Screenshot -> Rune Identify");
+    let open_solver = CustomMenuItem::new("open_solver", "Open Solver");
     let config = CustomMenuItem::new("config", "Config");
     let view_log = CustomMenuItem::new("view_log", "View Log");
     let restart = CustomMenuItem::new("restart", "Restart");
     let quit = CustomMenuItem::new("quit", "Quit");
     SystemTrayMenu::new()
-        .add_item(ocr_recognize)
+        .add_item(open_solver)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
 
@@ -139,13 +139,13 @@ fn tray_menu_en() -> tauri::SystemTrayMenu {
 }
 
 fn tray_menu_zh_cn() -> tauri::SystemTrayMenu {
-    let ocr_recognize = CustomMenuItem::new("ocr_recognize", "截图识别符文");
+    let open_solver = CustomMenuItem::new("open_solver", "打开解题助手");
     let config = CustomMenuItem::new("config", "偏好设置");
     let restart = CustomMenuItem::new("restart", "重启应用");
     let view_log = CustomMenuItem::new("view_log", "查看日志");
     let quit = CustomMenuItem::new("quit", "退出");
     SystemTrayMenu::new()
-        .add_item(ocr_recognize)
+        .add_item(open_solver)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(config)
 

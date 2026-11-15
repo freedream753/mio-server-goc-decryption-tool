@@ -53,10 +53,11 @@ fn http_handle(request: Request) {
     }
     info!("Handle {} request", request.url());
     match request.url() {
-        // 主入口：截图 → 识别符文 → 结果窗口（失败在结果窗口报错）
-        "/" | "/ocr_recognize" | "/ocr_recognize?screenshot=true" => handle_rune_scan(request),
-        // 手动框选入口：对已有框选选区图（pot_screenshot_cut.png）跑同一符文管线
-        "/solver_manual" => handle_rune_scan_manual(request),
+        // 主入口：呼出结果窗口并切到波形页签（noocr 支线：HTTP 仅做助手呼出）
+        "/" => {
+            crate::window::open_result_tab("wave");
+            response_ok(request);
+        }
         "/config" => handle_config(request),
         _ => warn!("Unknown request url: {}", request.url()),
     }
@@ -105,16 +106,6 @@ fn reject_reason(request: &Request) -> Option<String> {
 
 fn handle_config(request: Request) {
     config_window();
-    response_ok(request);
-}
-
-fn handle_rune_scan(request: Request) {
-    crate::runes::rune_scan();
-    response_ok(request);
-}
-
-fn handle_rune_scan_manual(request: Request) {
-    crate::runes::rune_scan_manual();
     response_ok(request);
 }
 

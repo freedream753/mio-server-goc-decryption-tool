@@ -8,39 +8,6 @@ use tauri::Window;
 use tauri::WindowBuilder;
 use window_shadows::set_shadow;
 
-// 框选用途派发：截图窗口 success 事件按此分发给符文识别("rune")或波形框选("wave")
-pub static SHOT_PURPOSE: Mutex<&'static str> = Mutex::new("rune");
-
-// 框选流程设置互斥：crop/wave 两个入口共用 SHOT_PURPOSE 单值与同一截图窗口，
-// 「设置用途 → 起线程拉框选窗」必须原子完成，并发入口会互相覆盖用途值导致
-// success 派发到错误管线。入口用 try_lock 抢锁，抢不到说明已有流程在设置中
-pub static PURPOSE_IO: Mutex<()> = Mutex::new(());
-
-// 最近一次框选区域（物理像素），截图窗口 cut_image 命令写入、
-// 波形框选（wave::on_region_selected）读取落定
-pub static LAST_CUT: Mutex<Option<(u32, u32, u32, u32)>> = Mutex::new(None);
-
-// ---------------- 全局裁切模式（v1.2.7） ----------------
-// 框选后密码/波形/西蒙三条截图管线只在该区域内识别，不再采集全屏。
-// CROP_REGION 为全局桌面物理像素 (x, y, w, h)；SHOT_ORIGIN 记录最近一次
-// 框选截图所覆盖显示器的全局原点（cmd::screenshot 写入），用于把框选的
-// 图内坐标换算成全局坐标。
-
-pub static CROP_REGION: Mutex<Option<(i32, i32, u32, u32)>> = Mutex::new(None);
-pub static SHOT_ORIGIN: Mutex<(i32, i32)> = Mutex::new((0, 0));
-
-pub fn set_shot_origin(x: i32, y: i32) {
-    *SHOT_ORIGIN.lock().unwrap() = (x, y);
-}
-
-pub fn crop_region() -> Option<(i32, i32, u32, u32)> {
-    *CROP_REGION.lock().unwrap()
-}
-
-pub fn set_shot_purpose(p: &'static str) {
-    *SHOT_PURPOSE.lock().unwrap() = p;
-}
-
 // 结果窗口默认几何（逻辑尺寸）= 识别页签尺寸；关卡页签由前端按页调用
 // set_result_window_size 调整（v1.2.1 四关卡全部集成进结果窗口）
 pub const RESULT_WINDOW_W: f64 = 420.0;
@@ -197,26 +164,6 @@ fn save_config_window_state(window: &tauri::Window) {
 
 pub fn config_window() {
     let (window, exists) = build_window("config", "GOC解题妙妙小工具");
-    // 设置窗口对屏幕捕获隐身（与结果/裁切指示窗同款，v1.4.0 全窗口覆盖）：
-    // 设置窗可能被玩家留在游戏画面上方，被截进识别带会污染像素统计与 OCR——
-    // 工具自有常显窗口一律隐身，识别管线不该看到自己
-    // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
-    #[cfg(all(target_os = "windows", not(feature = "record-visible")))]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-        };
-        if let Ok(hwnd) = window.hwnd() {
-            unsafe {
-                if let Err(e) =
-                    SetWindowDisplayAffinity(HWND(hwnd.0 as *mut _), WDA_EXCLUDEFROMCAPTURE)
-                {
-                    warn!("SetWindowDisplayAffinity(config) failed: {}", e);
-                }
-            }
-        }
-    }
     if exists {
         return;
     }
@@ -310,339 +257,6 @@ pub fn config_window() {
     });
 }
 
-// 全屏截图框选覆盖窗（手动框选降级路径）：展示全屏截图，用户拖拽选出识别区域
-fn screenshot_window() -> Window {
-    let (window, exists) = build_window("screenshot", "Screenshot");
-
-    // 框选完成后由截图窗口前端 emit("success") 触发识别。
-    // tauri v1 的 Window::listen 只能收到 window 标签与自身 label 相同的 trigger
-    // （JS 全局 emit 会以「发起窗口的 label」触发 Rust 监听器），因此监听必须挂在
-    // 截图窗口自己身上；窗口每次新建时重新注册，复用时沿用已有监听，避免监听丢失。
-    // 选区图按 SHOT_PURPOSE 派发：符文识别 / 波形画布框选 / 全局裁切
-    if !exists {
-        let _ = window.listen("success", |_| {
-            match *crate::window::SHOT_PURPOSE.lock().unwrap() {
-                "wave" => crate::wave::on_region_selected(),
-                "crop" => crop_selected(),
-                _ => crate::runes::rune_scan_manual(),
-            }
-        });
-    }
-
-    let _ = window.set_skip_taskbar(true);
-    let _ = window.set_fullscreen(true);
-
-    let _ = window.set_always_on_top(true);
-    // 框选覆盖窗同样对屏幕捕获隐身（v1.4.0）：西蒙录制等采集管线在框选进行期间
-    // 仍可能在跑，覆盖窗自身（含其展示的截图画面）不应进入任何采集管线
-    // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
-    #[cfg(all(target_os = "windows", not(feature = "record-visible")))]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-        };
-        if let Ok(hwnd) = window.hwnd() {
-            unsafe {
-                if let Err(e) =
-                    SetWindowDisplayAffinity(HWND(hwnd.0 as *mut _), WDA_EXCLUDEFROMCAPTURE)
-                {
-                    warn!("SetWindowDisplayAffinity(screenshot) failed: {}", e);
-                }
-            }
-        }
-    }
-    window
-}
-
-// 手动框选（框选交互沿用 v1.0.1）：拉起全屏框选窗 -> 用户选区 -> 选区图进符文识别
-// 管线。供自动定位失败（高 DPI 缩放、面板被遮挡等）时由用户自由选择截图区域
-pub fn ocr_recognize() {
-    let window = screenshot_window();
-    // 截图窗口会被复用：其前端 useEffect 只在挂载时执行一次，复用旧窗口不会重新截屏，
-    // 导致第二次 OCR 截屏一直显示旧图/无图。这里每次触发都显式通知前端重新截屏并显示；
-    // 新建窗口时前端会在挂载阶段自行截屏（事件可能早于前端监听注册，丢失也无妨）。
-    if let Err(e) = window.emit("screenshot_request", "") {
-        warn!("Emit screenshot_request failed: {}", e);
-    }
-}
-
-// ---------------- 全局裁切模式（v1.2.7） ----------------
-
-// 裁切模式框选完成（SHOT_PURPOSE="crop" 派发）：图内选区 + 截图显示器原点
-// → 全局物理像素区域 → 落定 CROP_REGION（含持久化）→ 浮现指示框 → 重显结果窗口
-fn crop_selected() {
-    let cut = match *LAST_CUT.lock().unwrap() {
-        Some(v) => v,
-        None => return,
-    };
-    let origin = *SHOT_ORIGIN.lock().unwrap();
-    let region = (
-        origin.0 + cut.0 as i32,
-        origin.1 + cut.1 as i32,
-        cut.2,
-        cut.3,
-    );
-    set_crop_region(Some(region));
-    info!(
-        "[crop] 裁切模式生效: {:?}（全局物理像素），后续识别只采集框内画面",
-        region
-    );
-    if let Some(app) = APP.get() {
-        let _ = app.run_on_main_thread(move || {
-            show_result_window();
-            show_crop_overlay(region);
-        });
-    }
-    // 裁切落定后按需自动进入触发时的模式（热键「未开裁切先框选」链路）：
-    // 此时 CROP_REGION 已生效，各入口的裁切前置检查自然放行。
-    // 读取与清空必须在同一次加锁内完成：框选进行期间 PURPOSE_IO 锁早已释放，
-    // 另一热键线程可写入新意图，非原子读清会把新意图清掉丢失本次自动派发
-    let after = {
-        let mut g = AFTER_CROP.lock().unwrap_or_else(|e| e.into_inner());
-        let v = *g;
-        if !v.is_empty() {
-            *g = "";
-        }
-        v
-    };
-    if !after.is_empty() {
-        info!("[crop] 裁切完成，自动进入模式: {}", after);
-        match after {
-            "wave" => crate::wave::wave_scan(),
-            "simon" => crate::simon::simon_start_auto(),
-            // 默认符文识别
-            _ => crate::runes::rune_scan(),
-        }
-    }
-}
-
-// 框选完成后自动进入的模式（"" = 只开裁切不接后续动作）：
-// 热键在未开裁切时触发 → 先拉框选定区域，crop_selected 落定后按此派发
-pub static AFTER_CROP: Mutex<&'static str> = Mutex::new("");
-
-// 进入裁切框选流程（cmd::crop_select 与各热键「未开裁切先框选」入口共用）：
-// 记录框选后要自动进入的模式 → 置派发用途 → 隐藏结果窗口 → 独立线程拉全屏框选窗。
-// PURPOSE_IO 串行化「设置用途→起线程」段：try_lock 失败说明已有框选流程在途，
-// 放弃本次触发，避免 SHOT_PURPOSE 全局单值被覆盖把 success 派发到错误管线
-pub fn begin_crop_selection(after: &'static str) -> bool {
-    let _io = match PURPOSE_IO.try_lock() {
-        Ok(g) => g,
-        Err(_) => {
-            warn!("[crop] 已有框选流程在途，忽略本次触发");
-            return false;
-        }
-    };
-    *AFTER_CROP.lock().unwrap_or_else(|e| e.into_inner()) = after;
-    set_shot_purpose("crop");
-    // 临时隐藏（不重置定位标志）：框选完成后窗口原位显示，不重定向到鼠标。
-    // 窗口创建必须挪到独立线程：在 tauri 命令（IPC 回调）上下文里同步创建
-    // WebView2 窗口会发生重入，协议请求管线被卡死（应用假死）
-    hide_result_window_temp();
-    std::thread::spawn(ocr_recognize);
-    true
-}
-
-// 窗口内操作（按钮/页签）的裁切前置校验：与热键行为区分——窗口操作不代拉
-// 框选，未开裁切时发 crop_required 事件让前端提示并标红裁切按钮，
-// 返回 false 供调用方直接拒绝本次操作
-pub fn require_crop_for_window() -> bool {
-    if crop_region().is_some() {
-        return true;
-    }
-    warn!("[crop] 窗口操作被拒绝：未开启裁切模式");
-    if let Some(app) = APP.get() {
-        if let Some(w) = app.get_window("result") {
-            let _ = w.emit("crop_required", true);
-        }
-    }
-    false
-}
-
-// 取消裁切模式：清空区域（含持久化）并隐藏指示框。
-// v1.4.0 起识别只认裁切区域：取消后所有识别入口在重新框选前不可用
-// （热键触发会转为「先框选」，窗口操作会提示并标红裁切按钮）
-pub fn crop_clear() {
-    set_crop_region(None);
-    info!("[crop] 裁切模式已取消，识别功能在重新框选前不可用");
-    if let Some(app) = APP.get() {
-        let _ = app.run_on_main_thread(hide_crop_overlay);
-    }
-}
-
-// 启动时恢复上次的裁切模式（配置持久化）：指示框重新浮现，区域继续生效。
-// 区域必须与现存显示器相交才恢复：拔掉副屏后旧区域可能悬在虚空，
-// 直接恢复会让识别管线永远采集空区域
-pub fn restore_crop_region() {
-    let parsed = get("crop_region").and_then(|v| {
-        v.as_array().map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_f64())
-                .collect::<Vec<f64>>()
-        })
-    });
-    if let Some(a) = parsed {
-        // 宽高须为正；x/y 允许负值——左侧/上方副屏的全局坐标为负，
-        // crop_selected 落定的区域完全可能是负坐标（不能用「非负」判断）
-        if a.len() == 4 && a[2] > 0.0 && a[3] > 0.0 {
-            // 用 i64 求交防溢出（配置可被手改成超大数值）
-            let (x, y, w, h) = (a[0] as i64, a[1] as i64, a[2] as i64, a[3] as i64);
-            // APP 可用时枚举现存显示器（物理坐标原点+尺寸）校验相交：
-            // 任一显示器满足 x < mx+mw && x+w > mx && y < my+mh && y+h > my 即可；
-            // APP 不可用（早于 setup）时保持原行为不拦截
-            let alive = match APP.get() {
-                Some(app) => {
-                    // tauri v1 的 available_monitors 在 Window 上（AppHandle 没有），
-                    // 且 daemon 窗口的枚举实测最稳定（见 get_current_monitor 注释）
-                    let daemon = app.get_window("daemon");
-                    match daemon.map(|w| w.available_monitors()) {
-                        Some(Ok(monitors)) => monitors.iter().any(|m| {
-                            let (mx, my) = (m.position().x as i64, m.position().y as i64);
-                            let (mw, mh) = (m.size().width as i64, m.size().height as i64);
-                            x < mx + mw && x + w > mx && y < my + mh && y + h > my
-                        }),
-                        // 窗口不存在/枚举失败时不拦截，保持原恢复行为
-                        _ => true,
-                    }
-                }
-                None => true,
-            };
-            if alive {
-                let region = (x as i32, y as i32, w as u32, h as u32);
-                *CROP_REGION
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()) = Some(region);
-                info!("[crop] 已恢复裁切模式: {:?}", region);
-                show_crop_overlay(region);
-            } else {
-                warn!(
-                    "[crop] 已保存的裁切区域 {:?} 不在任何现存显示器内（对应副屏可能已拔出），丢弃",
-                    (x, y, w, h)
-                );
-                // 清掉失效配置，避免每次启动重复告警
-                set("crop_region", serde_json::Value::Null);
-            }
-        }
-    }
-}
-
-fn set_crop_region(region: Option<(i32, i32, u32, u32)>) {
-    *CROP_REGION.lock().unwrap() = region;
-    match region {
-        Some((x, y, w, h)) => set("crop_region", vec![x as f64, y as f64, w as f64, h as f64]),
-        None => set("crop_region", serde_json::Value::Null),
-    }
-    // 通知结果窗口切换按钮态（框选 ⇄ 取消裁切模式）
-    if let Some(app) = APP.get().cloned() {
-        let _ = app.clone().run_on_main_thread(move || {
-            if let Some(w) = app.get_window("result") {
-                let _ = w.emit("crop_state", region.is_some());
-            }
-        });
-    }
-}
-
-// 裁切模式指示框：罩在裁切区四周的置顶点击穿透窗（边框 + 「裁切模式」角标），
-// 让用户随时知道识别只发生在框内。窗口比裁切区四周各外扩 OVERLAY_PAD，
-// 留出边框与角标的位置；点击穿透由 set_ignore_cursor_events 保证。
-const OVERLAY_PAD: i32 = 14;
-
-fn show_crop_overlay(region: (i32, i32, u32, u32)) {
-    let app = match APP.get() {
-        Some(v) => v,
-        None => return,
-    };
-    let (x, y, w, h) = region;
-    let ow = w as i32 + OVERLAY_PAD * 2;
-    let oh = h as i32 + OVERLAY_PAD * 2;
-    let ox = x - OVERLAY_PAD;
-    let oy = y - OVERLAY_PAD;
-    let window = match app.get_window("crop") {
-        Some(v) => v,
-        None => {
-            info!("Creating crop overlay window");
-            let builder = tauri::WindowBuilder::new(
-                app,
-                "crop",
-                tauri::WindowUrl::App("index.html".into()),
-            )
-            .title("GOC Crop")
-            .visible(false)
-            .transparent(true)
-            .decorations(false)
-            .focused(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false);
-            match builder.build() {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!("Failed to create crop overlay: {}", e);
-                    return;
-                }
-            }
-        }
-    };
-    let _ = window.set_ignore_cursor_events(true);
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-        };
-        // record-visible 特殊构建（录制演示用途）不需要隐身导入
-        #[cfg(not(feature = "record-visible"))]
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-        };
-        if let Ok(hwnd) = window.hwnd() {
-            unsafe {
-                let h = HWND(hwnd.0 as *mut _);
-                // 指示窗对屏幕捕获隐身（Win10 2004+）：橙色边框/角标是工具自绘 UI，
-                // 若被截进画面，竖直橙线会让解密的彩色行带黏成巨带、西蒙的边缘
-                // 掩膜多出假跳变沿——识别管线不该看到自己的指示器
-                // record-visible 特殊构建跳过：恢复对 OBS/截图可见
-                #[cfg(not(feature = "record-visible"))]
-                if let Err(e) = SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE) {
-                    warn!("SetWindowDisplayAffinity(crop) failed: {}", e);
-                }
-                let _ = SetWindowPos(
-                    h,
-                    HWND_TOPMOST,
-                    ox,
-                    oy,
-                    ow,
-                    oh,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window.set_size(tauri::PhysicalSize::new(ow.max(1) as u32, oh.max(1) as u32));
-        let _ = window.set_position(tauri::PhysicalPosition::new(ox, oy));
-        let _ = window.show();
-    }
-}
-
-fn hide_crop_overlay() {
-    if let Some(app) = APP.get() {
-        if let Some(window) = app.get_window("crop") {
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use windows::Win32::Foundation::HWND;
-                use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
-                if let Ok(hwnd) = window.hwnd() {
-                    let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_HIDE);
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            let _ = window.hide();
-        }
-    }
-}
-
 // ---------------- 符文识别结果窗口 ----------------
 // 始终置顶 + WS_EX_NOACTIVATE（不抢焦点，不打断游戏按键交互），
 // 数据由 Rust 推送（emit rune_scan），展示/纠正由前端负责（v1.2.0 起无自动倒计时，
@@ -717,13 +331,9 @@ pub fn get_or_create_result_window() -> Option<Window> {
             #[cfg(target_os = "windows")]
             {
                 apply_result_ex_style(&v);
-                // 结果窗口对屏幕捕获隐身（Win10 2004+，与裁切指示窗同款）：
-                // 窗口常被玩家摆在游戏棋盘正下方，其 UI（「停止」按钮/步骤列
-                // 表/提示文字）会落进西蒙状态区/按钮区识别带——窗口内容一变
-                // 就污染带内像素统计与 OCR（实机日志实证：状态区 OCR 读到了
-                // 自己窗口的「停止」按钮并误判相位、清空重录）
-                // record-visible 特殊构建（录制演示用途）跳过：恢复对 OBS/截图可见
-                #[cfg(not(feature = "record-visible"))]
+                // 结果窗口对屏幕捕获隐身（Win10 2004+）：
+                // 窗口常被玩家摆在游戏画面上方，工具自有常显窗口不应进入
+                // 外部采集/录屏画面
                 {
                     use windows::Win32::Foundation::HWND;
                     use windows::Win32::UI::WindowsAndMessaging::{
@@ -785,15 +395,6 @@ fn set_result_home_monitor() {
     let ms = m.size();
     if let Ok(mut home) = RESULT_HOME_MONITOR.lock() {
         *home = Some((mp.x, mp.y, ms.width as i32, ms.height as i32));
-    }
-}
-
-// 创建（或复用）结果窗口并推送新结果。调用方须在主线程。
-pub fn result_window_notify(payload: serde_json::Value) {
-    if let Some(window) = get_or_create_result_window() {
-        if let Err(e) = window.emit("rune_scan", payload) {
-            warn!("Emit rune_scan failed: {}", e);
-        }
     }
 }
 
@@ -901,12 +502,6 @@ pub fn hide_result_window() {
     hide_result_window_inner(true);
 }
 
-// 框选截图前的临时隐藏：窗口不是被用户关闭，框选完成后要原位显示，
-// 因此不重置 RESULT_PLACED、不清归属显示器（否则框选后窗口会重定向到鼠标）
-pub fn hide_result_window_temp() {
-    hide_result_window_inner(false);
-}
-
 fn hide_result_window_inner(reset_place: bool) {
     if let Some(app) = APP.get() {
         if let Some(window) = app.get_window("result") {
@@ -921,19 +516,47 @@ fn hide_result_window_inner(reset_place: bool) {
             #[cfg(not(target_os = "windows"))]
             let _ = window.hide();
             if reset_place {
-                // 关闭即重置定位标志并清除归属显示器：下次按快捷键重新定向到鼠标附近。
-                // 西蒙录制仅限西蒙窗口：窗口被关闭时自动暂停录制
+                // 关闭即重置定位标志并清除归属显示器：下次按快捷键重新定向到鼠标附近
                 RESULT_PLACED.store(false, std::sync::atomic::Ordering::SeqCst);
                 if let Ok(mut home) = RESULT_HOME_MONITOR.lock() {
                     *home = None;
-                }
-                if crate::simon::simon_running() {
-                    crate::simon::simon_stop_impl();
                 }
             }
             info!("[window] 结果窗口隐藏（reset_place={}）", reset_place);
         }
     }
+}
+
+// 待切页签（open_result_tab 写入，前端 get_open_tab 读即清）
+static PENDING_TAB: Mutex<Option<&'static str>> = Mutex::new(None);
+
+// 热键/托盘/HTTP 通用入口：呼出结果窗口并切到指定页签。
+// 铁律：绝不能在热键回调/命令上下文同步创建 WebView2 窗口（会卡死协议管线），
+// 必须 thread::spawn 后经 run_on_main_thread 在主线程建窗（同旧 wave.rs notify_result 模式）
+pub fn open_result_tab(tab: &'static str) {
+    *PENDING_TAB.lock().unwrap_or_else(|e| e.into_inner()) = Some(tab);
+    std::thread::spawn(move || {
+        if let Some(app) = crate::APP.get() {
+            let _ = app.run_on_main_thread(move || {
+                get_or_create_result_window();
+                show_result_window();
+                if let Some(app) = crate::APP.get() {
+                    if let Some(w) = app.get_window("result") {
+                        let _ = w.emit("open_tab", tab);
+                    }
+                }
+            });
+        }
+    });
+}
+
+// 读取并清空待切页签（读即清防竞态）
+pub fn take_pending_tab() -> Option<String> {
+    PENDING_TAB
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .map(String::from)
 }
 
 

@@ -6,8 +6,6 @@ pub enum Error {
     #[error(transparent)]
     Error(#[from] Box<dyn std::error::Error>),
     #[error(transparent)]
-    Image(#[from] image::ImageError),
-    #[error(transparent)]
     Selection(#[from] font_kit::error::SelectionError),
 }
 

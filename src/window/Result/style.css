@@ -70,51 +70,6 @@ body,
     cursor: move;
 }
 
-/* 框选识别按钮：四角方框标志（v1.2.4 起纯图标），先隐藏本窗口再拉起手动框选 */
-.result-ocr {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 16px;
-    line-height: 1;
-    color: #4ea1ff;
-    background: rgba(78, 161, 255, 0.14);
-    border: 1px solid rgba(78, 161, 255, 0.45);
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.result-ocr:hover {
-    color: #ffffff;
-    background: rgba(78, 161, 255, 0.35);
-}
-
-.result-ocr:active {
-    background: rgba(78, 161, 255, 0.55);
-}
-
-/* 裁切模式激活态：橙色实心，与全屏指示框同色，一眼可辨 */
-.result-ocr.is-active {
-    color: #1c1206;
-    background: #ffb35c;
-    border-color: #ffb35c;
-}
-
-/* 裁切前置警示态（v1.4.0）：窗口操作在未开裁切时被拒绝——红色 + 脉冲闪烁引导 */
-.result-ocr.is-alert {
-    color: #ffffff;
-    background: #e5484d;
-    border-color: #ff7b80;
-    animation: ocr-alert-pulse 0.9s ease-in-out infinite;
-}
-
-@keyframes ocr-alert-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-
 .result-title {
     flex: 1;
     font-weight: 700;
@@ -218,13 +173,6 @@ body,
     color: #ff987f;
 }
 
-/* 符文识别失败提示（页签下方独立一行） */
-.rune-scan-error {
-    flex: none;
-    margin: 0;
-    line-height: 1.4;
-}
-
 .lvl-status {
     font-size: 11.5px;
     font-weight: 600;
@@ -311,6 +259,62 @@ body,
     color: #7ee0b0;
 }
 
+/* 手绘采集画布：深底同 .wave-preview 配色，preserveAspectRatio=none 拉伸铺满；
+   touch-action:none 阻止浏览器手势接管，指针事件全程用于采集 */
+.wave-canvas-wrap {
+    position: relative;
+}
+
+.wave-canvas {
+    display: block;
+    width: 100%;
+    height: 130px;
+    box-sizing: border-box;
+    background: #0a1220;
+    border: 1px solid rgba(57, 126, 172, 0.6);
+    border-radius: 6px;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+/* 浅色网格线（每 10 单位一条）：non-scaling-stroke 防拉伸后线宽变形 */
+.wave-canvas line {
+    stroke: rgba(78, 161, 255, 0.16);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+/* 手绘折线：浅蓝；non-scaling-stroke 抵消 preserveAspectRatio=none 的线宽变形 */
+.wave-canvas-trace {
+    fill: none;
+    stroke: #7dd3fc;
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+/* 拟合结果曲线：橙，与 .wave-preview path 同色系 */
+.wave-canvas-fit {
+    fill: none;
+    stroke: #ffb35c;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+}
+
+/* 空态提示：覆盖层纯展示，pointer-events:none 不拦截画布指针事件 */
+.wave-canvas-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #527198;
+    pointer-events: none;
+}
+
 /* 第一关 波形结果：四个滑块可视化（与游戏滑块同构，滑钮位置即照抄位置） */
 .wave-result {
     display: flex;
@@ -395,46 +399,6 @@ body,
     font-size: 15px;
     color: #7dd3fc;
     font-variant-numeric: tabular-nums;
-}
-
-/* 第二关 3×2 步骤格（与游戏同布局：上排火水风/下排土雷光），
-   格子中心大字标该符文亮起的顺序序号 */
-.simon-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-}
-
-.simon-tile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    padding: 10px 4px;
-    background: #182a44;
-    border: 1px solid rgba(57, 126, 172, 0.6);
-    border-radius: 6px;
-}
-
-.simon-tile-name {
-    font-size: 14px;
-    color: #edf6ff;
-}
-
-.simon-tile-seq {
-    font-size: 19px;
-    font-weight: 700;
-    line-height: 1.2;
-    color: #7dd3fc;
-    font-variant-numeric: tabular-nums;
-}
-
-/* 未亮起的格子：占位符弱化显示 */
-.simon-tile-seq.is-empty {
-    font-size: 14px;
-    font-weight: 400;
-    color: #527198;
 }
 
 /* 第三关 密码破解：4 反馈框 + 6 符文选项。

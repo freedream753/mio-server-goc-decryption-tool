@@ -1,6 +1,4 @@
 use crate::config::{get, set};
-use crate::runes::rune_scan;
-use crate::wave::wave_scan;
 use crate::APP;
 use log::{error, info, warn};
 use std::sync::Mutex;
@@ -12,20 +10,29 @@ use tauri::{AppHandle, GlobalShortcutManager};
 // panic 毒化时降级继续用（into_inner），不让单次故障永久卡死热键功能
 static HOTKEY_IO: Mutex<()> = Mutex::new(());
 
-// 按热键名选 handler：第一关波形校准走 wave_scan，西蒙走开始/停止录制切换，其余走符文识别
+// noocr 支线：识别热键全部改为「呼出结果窗口并切到对应页签」。
+// 配置键名保留历史命名（hotkey_ocr_recognize 实为解密助手呼出键），
+// 避免老用户配置键失效与热键设置页 i18n 大改
+fn open_wave_tab() {
+    crate::window::open_result_tab("wave");
+}
+
+fn open_cipher_tab() {
+    crate::window::open_result_tab("cipher");
+}
+
 fn handler_for(name: &str) -> fn() {
     match name {
-        "hotkey_wave_scan" => wave_scan,
-        "hotkey_simon" => crate::simon::simon_toggle,
-        _ => rune_scan,
+        "hotkey_wave_scan" => open_wave_tab,
+        "hotkey_simon" => open_cipher_tab, // simon 键位已退役：兜底映射到解密页（正常不会注册）
+        _ => open_cipher_tab,
     }
 }
 
-// 各热键的默认键位（未配置过时写入）：Alt+X 波形校准 / Alt+C 西蒙录制 / Alt+V 解密识别
+// 各热键的默认键位（未配置过时写入）：Alt+X 波形校准呼出 / Alt+V 解密识别呼出
 fn default_key(name: &str) -> &'static str {
     match name {
         "hotkey_wave_scan" => "Alt+X",
-        "hotkey_simon" => "Alt+C",
         _ => "Alt+V",
     }
 }
@@ -34,10 +41,9 @@ fn default_key(name: &str) -> &'static str {
 // 配置一次性迁移到新默认，避免老用户按键不变以为改动没生效。用户自定义过的
 // 键位（≠旧默认）不动。迁移是幂等的：写入新值后下次启动不再命中旧默认。
 fn migrate_default_hotkeys() {
-    const MIGRATIONS: [(&str, &str, &str); 3] = [
+    const MIGRATIONS: [(&str, &str, &str); 2] = [
         // (配置名, 旧默认, 新默认)
         ("hotkey_wave_scan", "Alt+V", "Alt+X"),
-        ("hotkey_simon", "Alt+X", "Alt+C"),
         ("hotkey_ocr_recognize", "Alt+C", "Alt+V"),
     ];
     for (name, old, new) in MIGRATIONS {
@@ -101,24 +107,20 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
         migrate_default_hotkeys();
     }
     match shortcut {
-        "hotkey_ocr_recognize" => register(app_handle, "hotkey_ocr_recognize", rune_scan, "")?,
-        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", wave_scan, "")?,
-        "hotkey_simon" => register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "")?,
+        "hotkey_ocr_recognize" => register(app_handle, "hotkey_ocr_recognize", open_cipher_tab, "")?,
+        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", open_wave_tab, "")?,
         "all" => {
             // 逐个注册并收集失败项：任一热键被占用（与其他程序冲突）不得用 `?`
             // 短路导致后续热键全部不注册。全部失败才返回 Err；部分失败时告警
             // 列出失败的热键名+原因，返回 Ok 保证其余热键可用
             let mut failures: Vec<String> = Vec::new();
-            if let Err(e) = register(app_handle, "hotkey_ocr_recognize", rune_scan, "") {
+            if let Err(e) = register(app_handle, "hotkey_ocr_recognize", open_cipher_tab, "") {
                 failures.push(format!("hotkey_ocr_recognize: {}", e));
             }
-            if let Err(e) = register(app_handle, "hotkey_wave_scan", wave_scan, "") {
+            if let Err(e) = register(app_handle, "hotkey_wave_scan", open_wave_tab, "") {
                 failures.push(format!("hotkey_wave_scan: {}", e));
             }
-            if let Err(e) = register(app_handle, "hotkey_simon", crate::simon::simon_toggle, "") {
-                failures.push(format!("hotkey_simon: {}", e));
-            }
-            if failures.len() == 3 {
+            if failures.len() == 2 {
                 return Err(failures.join("; "));
             }
             if !failures.is_empty() {
@@ -137,10 +139,9 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
     let _io = HOTKEY_IO.lock().unwrap_or_else(|e| e.into_inner());
     match name {
         "hotkey_ocr_recognize" => {
-            register(app_handle, "hotkey_ocr_recognize", rune_scan, shortcut)?
+            register(app_handle, "hotkey_ocr_recognize", open_cipher_tab, shortcut)?
         }
-        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", wave_scan, shortcut)?,
-        "hotkey_simon" => register(app_handle, "hotkey_simon", crate::simon::simon_toggle, shortcut)?,
+        "hotkey_wave_scan" => register(app_handle, "hotkey_wave_scan", open_wave_tab, shortcut)?,
         _ => {}
     }
     Ok(())

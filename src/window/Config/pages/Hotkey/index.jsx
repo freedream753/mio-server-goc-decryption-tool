@@ -46,18 +46,15 @@ const keyMap = {
 
 const HOTKEY_ROWS = [
     { name: 'hotkey_ocr_recognize', i18n: 'config.hotkey.ocr_recognize', fallback: 'Alt+V' },
-    { name: 'hotkey_simon', i18n: 'config.hotkey.simon', fallback: 'Alt+C' },
     { name: 'hotkey_wave_scan', i18n: 'config.hotkey.wave_scan', fallback: 'Alt+X' },
 ];
 
 export default function Hotkey() {
     const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', 'Alt+V');
-    const [simonHotkey, setSimonHotkey] = useConfig('hotkey_simon', 'Alt+C');
     const [waveScan, setWaveScan] = useConfig('hotkey_wave_scan', 'Alt+X');
     // 各热键名 → [当前值, 写回函数]，渲染与提交共用
     const stateMap = {
         hotkey_ocr_recognize: [ocrRecognize, setOcrRecognize],
-        hotkey_simon: [simonHotkey, setSimonHotkey],
         hotkey_wave_scan: [waveScan, setWaveScan],
     };
     const [editing, setEditing] = useState(null); // 当前在录制的热键 name

@@ -1,134 +1,39 @@
-// 三关卡集成窗口（v1.2.7：页签重排为 校准/西蒙/解密；标题旁框选按钮改为全局
-// 裁切模式开关——框选屏幕区域后三条截图管线只采集框内画面，按钮切换为「取消
-// 裁切模式」；v1.2.2 删除「识别」页——与「解密」页是同一套符文解谜，Alt+V 自动
-// 识别结果直接写入解密页会话并重算推荐，识别不完整时不写历史，由用户在解密页
-// 手动录入；v1.2.0 起无自动倒计时，由用户手动关闭）
-// 数据流：Rust 识别（裁切区域内）→ emit `rune_scan` + 静态 RUNE_SCAN，挂载后主动
-//        `get_rune_scan()` 拉一次防竞态；
-//        payload = { ok, slots:[{rune,color}×4], source, msg }，rune 0=空 1=火 2=水 3=风 4=土 5=雷，color 0=红 1=黄 2=绿。
-// 8 项全部非 null 才自动追加一条历史（与末条完全相同则跳过，同一屏重复按热键不重复记）。
-// 解密页求解走自己的 Web Worker（runes.worker.js + runes.js 的 createSolver），主线程不建 1296×1296 矩阵。
+// 两关卡集成窗口（noocr 支线：无截图/OCR，西蒙页与全局裁切模式已移除）：
+// 页签 = 校准（第一关波形手绘）+ 解密（第三关）。
+// 数据流：波形页手绘 → wave_fit_points（页面内自治）；解密页会话经 rune-store 读写。
+// 呼出链路：热键/托盘/HTTP 呼出时后端写入待切页签 → 本窗口挂载读 get_open_tab
+//（读即清防竞态）并监听 open_tab 事件切页。
 import { invoke } from '@tauri-apps/api';
 import { listen } from '@tauri-apps/api/event';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { version } from '../../../package.json';
-import { appendRecord, loadSession, recordFromSlots, saveSession } from '../../utils/rune-store';
-import { CipherPage, SimonPage, WavePage } from './pages';
+import { CipherPage, WavePage } from './pages';
 import './style.css';
 
-// 页签定义（v1.2.7 重排）：校准（第一关波形，Alt+X）+ 西蒙（第二关，Alt+C）+ 解密（Alt+V）；
+// 页签定义：校准（第一关波形）+ 解密（第三关）；
 // 页签名经 i18n 取自 result.tab.<id>（其他 locale 缺失时按 fallbackLng 回落）；
 // 窗口高度由 ResizeObserver 跟随内容实际高度动态调整（见下），命中区域 = 可视区域
-const TABS = ['wave', 'simon', 'cipher'];
-
-// payload -> 4 个可编辑位：缺失/越界一律按未识别（null）处理
-function normalizeSlots(slots) {
-    const list = Array.isArray(slots) ? slots : [];
-    return Array.from({ length: 4 }, (_, i) => {
-        const rune = list[i]?.rune;
-        const color = list[i]?.color;
-        return {
-            rune: Number.isInteger(rune) && rune >= 0 && rune < 6 ? rune : null,
-            color: Number.isInteger(color) && color >= 0 && color < 3 ? color : null,
-        };
-    });
-}
+const TABS = ['wave', 'cipher'];
 
 export default function Result() {
     const { t } = useTranslation();
     const [tab, setTab] = useState('wave');
-    const [cropActive, setCropActive] = useState(false);
-    // 裁切前置提示（v1.4.0）：窗口内操作（识别/扫描/西蒙启动）在未开裁切时被
-    // 后端拒绝并广播 crop_required，前端展示提示文案并标红裁切按钮；
-    // 裁切模式生效（crop_state=true）后自动清除
-    const [cropAlert, setCropAlert] = useState(false);
-    // 最近一次符文识别的失败信息（ok=false 时展示在页签下方，成功后清除）
-    const [runeError, setRuneError] = useState('');
     const rootRef = useRef(null);
     const lastHeight = useRef(0);
-    // 西蒙录制运行状态镜像：切到非西蒙页签时自动暂停录制用
-    const simonRunningRef = useRef(false);
 
-    // 切页统一入口：切到西蒙页签 → 自动启动自动模式识别（状态文字驱动采集）；
-    // 切到校准/解密页签 → 自动暂停（录制仅限西蒙页签可见）
+    // 切页统一入口
     const changeTab = (next) => {
-        if (next === 'simon') {
-            if (!simonRunningRef.current) invoke('simon_start_auto').catch(() => {});
-        } else if (simonRunningRef.current) {
-            invoke('simon_stop').catch(() => {});
-        }
         setTab(next);
     };
 
-    // rune_scan payload → 完整记录自动写入会话（解密页经 SESSION_EVENT 刷新并重算推荐）；
-    // 无论成败都切到解密页签（Alt+V 语义就是「识别解密」，失败信息展示在解密页签下方）；
-    // 识别不完整（ok 但槽位缺失）时不写历史，等用户在解密页手动录入
-    const applyPayload = (payload) => {
-        if (!payload) return;
-        if (!payload.ok) {
-            // 失败原因码优先走多语言文案（result.rune_err.<code>），未知码/旧 payload 回退后端 msg 原文
-            const fallback = payload.msg || t('result.rune_scan_failed');
-            setRuneError(payload.code ? t(`result.rune_err.${payload.code}`, { defaultValue: fallback }) : fallback);
-            changeTab('cipher');
-            return;
-        }
-        setRuneError('');
-        changeTab('cipher');
-        const next = normalizeSlots(payload.slots);
-        const record = recordFromSlots(next.map((s) => s.rune), next.map((s) => s.color));
-        if (!record) return;
-        const appended = appendRecord(loadSession(), record);
-        if (appended.added) saveSession(appended.session);
-    };
-
+    // 热键/托盘/HTTP 呼出时后端写入待切页签：挂载先读 get_open_tab（读即清防竞态），
+    // 再挂 open_tab 事件监听
     useEffect(() => {
-        // 挂载后拉一次最近结果，避免 Rust emit 早于监听注册的竞态
-        invoke('get_rune_scan')
-            .then(applyPayload)
-            .catch(() => {});
-        const un = listen('rune_scan', (e) => applyPayload(e.payload));
-        return () => {
-            un.then((f) => f());
-        };
-    }, []);
-
-    // 后台管线触发时自动切到对应关卡页（数据由各页面自己的监听接收）：
-    // 波形求解 → wave_scan；西蒙热键开始录制 → simon_state(running=true)。
-    // 西蒙首次热键触发时窗口可能刚创建、emit 早于监听注册，
-    // 挂载后拉 get_simon_state 兜底（已在录制则切到西蒙页签）
-    useEffect(() => {
-        invoke('get_simon_state')
-            .then((running) => {
-                simonRunningRef.current = !!running;
-                if (running) changeTab('simon');
-            })
-            .catch(() => {});
-        const unWave = listen('wave_scan', () => changeTab('wave'));
-        const unSimon = listen('simon_state', (e) => {
-            simonRunningRef.current = !!e.payload?.running;
-            if (e.payload?.running) changeTab('simon');
-        });
-        return () => {
-            unWave.then((f) => f());
-            unSimon.then((f) => f());
-        };
+        invoke('get_open_tab').then((next) => { if (next) changeTab(next); }).catch(() => {});
+        const un = listen('open_tab', (e) => changeTab(e.payload));
+        return () => { un.then((f) => f()); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // 全局裁切模式状态：挂载拉取一次（防竞态）+ 监听变更，按钮随之切换；
-    // 窗口操作被裁切门控拒绝（crop_required）时展示提示并标红按钮
-    useEffect(() => {
-        invoke('get_crop_state').then(setCropActive).catch(() => {});
-        const un = listen('crop_state', (e) => {
-            setCropActive(!!e.payload);
-            if (e.payload) setCropAlert(false);
-        });
-        const unRequired = listen('crop_required', () => setCropAlert(true));
-        return () => {
-            un.then((f) => f());
-            unRequired.then((f) => f());
-        };
     }, []);
 
     // 命中区域 = 可视区域（v1.2.7）：窗口高度跟随内容实际高度，
@@ -156,7 +61,7 @@ export default function Result() {
         };
         const ro = new ResizeObserver(measure);
         ro.observe(el);
-        // 三个页面常驻挂载：显示/隐藏与内容变化都会触发对应回调（隐藏页无盒子不触发）
+        // 两个页面常驻挂载：显示/隐藏与内容变化都会触发对应回调（隐藏页无盒子不触发）
         el.querySelectorAll('.lvl-body').forEach((b) => ro.observe(b));
         return () => ro.disconnect();
     }, []);
@@ -165,41 +70,17 @@ export default function Result() {
         invoke('hide_result_window').catch(() => {});
     };
 
-    // 全局裁切模式开关：框选屏幕区域（之后校准/西蒙/解密只识别框内画面）⇄ 取消裁切
-    const toggleCrop = () => {
-        invoke(cropActive ? 'crop_clear' : 'crop_select').catch(() => {});
-    };
-
     return (
         <div className="result-container" ref={rootRef}>
             <div className="result-header" data-tauri-drag-region>
                 {/* Tauri v1 拖拽区只识别 mousedown 的精确 target，header 子元素必须逐个带上属性 */}
                 <span className="result-grip" data-tauri-drag-region title={t('result.drag')}>⠿</span>
-                {/* 裁切模式开关（v1.2.7）：激活时图标实心 + 橙色，悬停看说明 */}
-                <span
-                    className={`result-ocr ${cropActive ? 'is-active' : ''} ${cropAlert && !cropActive ? 'is-alert' : ''}`}
-                    title={cropActive ? t('result.crop_off') : t('result.crop_required')}
-                    onClick={toggleCrop}
-                >
-                    {cropActive ? (
-                        <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
-                            <rect x="2" y="2" width="8" height="8" rx="1.5" />
-                        </svg>
-                    ) : (
-                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                            <path d="M1 4 V1 H4" />
-                            <path d="M8 1 H11 V4" />
-                            <path d="M11 8 V11 H8" />
-                            <path d="M4 11 H1 V8" />
-                        </svg>
-                    )}
-                </span>
                 <span className="result-title" data-tauri-drag-region>{t('result.title', { version })}</span>
                 {/* 关闭按钮：不带拖拽区属性 */}
                 <span className="result-close" title={t('result.close')} onClick={closeResult}>✕</span>
             </div>
 
-            {/* 页签：校准/西蒙/解密，全部页面常驻挂载，隐藏仅 display:none */}
+            {/* 页签：校准/解密，全部页面常驻挂载，隐藏仅 display:none */}
             <nav className="result-tabs">
                 {TABS.map((id) => (
                     <button
@@ -211,14 +92,7 @@ export default function Result() {
                 ))}
             </nav>
 
-            {/* 符文识别失败提示：挂载拉取/热键触发的 ok=false payload 都会落到这里 */}
-            {runeError && <p className="lvl-error rune-scan-error">{runeError}</p>}
-
-            {/* 裁切前置提示（v1.4.0）：窗口操作在未开裁切时被后端拒绝后的引导文案 */}
-            {cropAlert && !cropActive && <p className="lvl-error rune-scan-error">{t('result.crop_required')}</p>}
-
             <div className={`lvl-wrap ${tab === 'wave' ? '' : 'is-hidden'}`}><WavePage /></div>
-            <div className={`lvl-wrap ${tab === 'simon' ? '' : 'is-hidden'}`}><SimonPage /></div>
             <div className={`lvl-wrap ${tab === 'cipher' ? '' : 'is-hidden'}`}><CipherPage /></div>
         </div>
     );

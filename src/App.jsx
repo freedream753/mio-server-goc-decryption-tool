@@ -5,9 +5,7 @@ const warn = console.warn;
 import React, { useEffect } from 'react';
 import { useTheme } from 'next-themes';
 
-import Screenshot from './window/Screenshot';
 import Result from './window/Result';
-import CropOverlay from './window/Crop';
 import { store } from './utils/store';
 import Config from './window/Config';
 import { useConfig } from './hooks';
@@ -15,10 +13,8 @@ import './style.css';
 import './i18n';
 
 const windowMap = {
-    screenshot: <Screenshot />,
     config: <Config />,
     result: <Result />,
-    crop: <CropOverlay />,
 };
 
 export default function App() {
@@ -46,14 +42,8 @@ export default function App() {
             }
             if (e.key === 'Escape') {
                 // 结果窗口只隐藏不销毁（复用 + Rust 兜底隐藏），Escape 关闭会把
-                // 整窗销毁导致三卡全部消失（密文编辑态按 Esc 取消编辑即触发）；
-                // 裁切指示层为常驻点击穿透窗，不响应 Esc；
-                // 截图框选窗 v1.2.7 起复用：Esc 取消只隐藏，销毁会触发整屏黑闪
-                if (appWindow.label === 'result' || appWindow.label === 'crop') {
-                    return;
-                }
-                if (appWindow.label === 'screenshot') {
-                    await appWindow.hide();
+                // 整窗销毁导致页签内容全部消失（密文编辑态按 Esc 取消编辑即触发）
+                if (appWindow.label === 'result') {
                     return;
                 }
                 await appWindow.close();

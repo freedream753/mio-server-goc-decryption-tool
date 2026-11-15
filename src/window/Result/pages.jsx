@@ -1,11 +1,8 @@
-// 三关卡页面（v1.2.4：转轮页删除；v1.2.1 集成进热键结果窗口）：
-// 密码破解 / 波形校准 / 西蒙符印。
+// 两关卡页面（noocr 支线：不使用截图/OCR，第二关西蒙页已移除）：
+// 波形校准（空白画布手绘）/ 密码破解。
 // 样式沿用结果窗口紧凑暗色风格（lvl- 前缀，见 style.css）。
-// 三个页面在 Result 里常驻挂载（隐藏仅 display:none），保证西蒙录制的
-// 事件监听不随页签切换丢失，录制状态得以保留。
 import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api';
-import { listen } from '@tauri-apps/api/event';
 import { Trans, useTranslation } from 'react-i18next';
 import { codes, runeKeys } from '../../utils/runes';
 import {
@@ -26,7 +23,7 @@ const COLOR_CYCLE = [2, 0, 1];
 
 // 波形预览曲线（与游戏画布目标线同构，不简化）：
 // 优先用 Rust 拟合出的完整双正弦参数 result.curve
-//（y = off + a1·sin(2πf1·x+p1) + a2·sin(2πf2·x+p2)，即识别到的目标线本身）；
+//（y = off + a1·sin(2πf1·x+p1) + a2·sin(2πf2·x+p2)，即拟合出的目标线本身）；
 // 旧缓存无 curve 时按四滑块逆映射退化画基波。
 // 采样 240 点输出 SVG path（viewBox 100×100，y 翻转：值大靠上与游戏画布一致）。
 // y 按采样点 min/max 动态归一化到 viewBox 的 8%~92%（单一线性映射，波形形状
@@ -67,32 +64,111 @@ function waveCurvePath(result) {
     }).join('L')}`;
 }
 
+// 手绘采集画布网格线（每 10 单位一条）：浅色低透明度，仅作绘制参考（样式见 style.css）
+const CANVAS_GRID = [];
+for (let i = 10; i < 100; i += 10) {
+    CANVAS_GRID.push(<line key={`v${i}`} x1={i} y1="0" x2={i} y2="100" />);
+    CANVAS_GRID.push(<line key={`h${i}`} x1="0" y1={i} x2="100" y2={i} />);
+}
+
+// 触发拟合所需的最少采样点数（低于此值曲线信息不足，拟合无意义）
+const MIN_POINTS = 8;
+
 export function WavePage() {
     const { t } = useTranslation();
+    // 归一化手绘点（x∈[0,1]，y∈[-1,1] 向上为正，与后端 wave_fit_points 约定一致）
+    const [points, setPoints] = useState([]);
+    const [drawing, setDrawing] = useState(false);
     const [result, setResult] = useState(null);
+    // points 的镜像 ref：指针事件流里读最新点集，不依赖渲染闭包时序
+    const pointsRef = useRef([]);
 
-    useEffect(() => {
-        // 挂载后拉最近结果（防 emit 早于监听注册的竞态），再挂监听
-        invoke('get_wave_scan').then(setResult).catch(() => {});
-        const un = listen('wave_scan', (e) => setResult(e.payload));
-        return () => {
-            un.then((f) => f());
-        };
-    }, []);
+    // 指针坐标 → viewBox 0~100 → 归一化（y 轴翻转：画布顶部为 +1，向上为正）
+    const toNorm = (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const px100 = ((e.clientX - rect.left) / rect.width) * 100;
+        const py100 = ((e.clientY - rect.top) / rect.height) * 100;
+        return [px100 / 100, -(py100 / 100 - 0.5) * 2];
+    };
 
-    const scan = () => invoke('wave_scan_cmd').catch(() => {});
-    // 手动框选降级已封存（v1.4.0 全屏实现弃用）：识别统一走全局裁切模式
+    // 调后端拟合：入参归一化点集，出参 { ok, msg, sliders, curve }
+    const fit = (pts) => {
+        if (pts.length < MIN_POINTS) return;
+        invoke('wave_fit_points', { points: pts })
+            .then(setResult)
+            .catch(() => {});
+    };
+
+    const onPointerDown = (e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        pointsRef.current = [];
+        setPoints([]);
+        setResult(null);
+        setDrawing(true);
+    };
+
+    const onPointerMove = (e) => {
+        if (!drawing) return;
+        const [x, y] = toNorm(e);
+        const prev = pointsRef.current;
+        const last = prev[prev.length - 1];
+        // 与上一点 x 间距过小的点不采集：压缩数据量也避免折线抖动
+        if (last && Math.abs(x - last[0]) <= 0.004) return;
+        const next = [...prev, [x, y]];
+        pointsRef.current = next;
+        setPoints(next);
+    };
+
+    const onPointerUp = () => {
+        setDrawing(false);
+        fit(pointsRef.current);
+    };
+
+    const clear = () => {
+        pointsRef.current = [];
+        setPoints([]);
+        setResult(null);
+        setDrawing(false);
+    };
+
     const s = result?.sliders;
+    // 手绘折线（画布 viewBox 0~100 坐标，y 轴翻转回画布方向）
+    const trace = points
+        .map(([x, y]) => `${(x * 100).toFixed(2)},${((0.5 - y / 2) * 100).toFixed(2)}`)
+        .join(' ');
+
     return (
         <div className="lvl-body">
             <p className="lvl-desc">{t('result.wave.desc')}</p>
+            <div className="wave-canvas-wrap">
+                <svg
+                    className="wave-canvas"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    onPointerDown={onPointerDown}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                >
+                    {CANVAS_GRID}
+                    {!!points.length && <polyline className="wave-canvas-trace" points={trace} />}
+                    {result?.ok && <path className="wave-canvas-fit" d={waveCurvePath(result)} />}
+                </svg>
+                {/* 空态提示：纯展示层，pointer-events:none 不拦截画布指针事件 */}
+                {!points.length && <div className="wave-canvas-hint">{t('result.wave.canvas_hint')}</div>}
+            </div>
             <div className="lvl-row">
-                <button type="button" className="lvl-btn primary" onClick={scan}>{t('result.wave.scan')}</button>
+                <button type="button" className="lvl-btn" onClick={clear}>{t('result.wave.clear')}</button>
+                <button
+                    type="button"
+                    className="lvl-btn primary"
+                    disabled={points.length < MIN_POINTS}
+                    onClick={() => fit(pointsRef.current)}
+                >{t('result.wave.refit')}</button>
                 {result && !result.ok && <span className="lvl-error">{result.msg}</span>}
             </div>
             {result?.ok && s && (
                 <div className="wave-result">
-                    {/* 反推曲线预览：完整双正弦（拟合自游戏目标线），照抄前可先目检 */}
+                    {/* 拟合曲线预览：完整双正弦（拟合自手绘目标线），照抄前可先目检 */}
                     <div className="wave-preview" title={t('result.wave.preview_title')}>
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                             <path d={waveCurvePath(result)} />
@@ -120,117 +196,12 @@ export function WavePage() {
     );
 }
 
-// ---------------- 第二关 西蒙符印 ----------------
-
-// 西蒙 3×2 格子布局（上排 火水风、下排 土雷光，与 Rust 侧步骤 index 约定同序：
-// 显示经 result.rune.* 取本地化名（光在西蒙语境存在，单独补 light）
-const SIMON_KEYS = ['fire', 'water', 'wind', 'earth', 'thunder', 'light'];
-
-export function SimonPage() {
-    const { t } = useTranslation();
-    const [steps, setSteps] = useState([]);
-    const [running, setRunning] = useState(false);
-    const [error, setError] = useState('');
-    const [info, setInfo] = useState('');
-    // 步骤列表同步代际号：只应用最后一次发起的 refetch 结果，防止并发
-    // invoke 的响应乱序返回时旧快照覆盖新列表
-    const syncSeq = useRef(0);
-    const syncSteps = () => {
-        const id = ++syncSeq.current;
-        invoke('get_simon_steps')
-            .then((s) => {
-                if (id === syncSeq.current) setSteps(s);
-            })
-            .catch(() => {});
-    };
-
-    useEffect(() => {
-        syncSteps();
-        // simon_step 不做本地乐观追加：轮次截断会丢弃超量步骤，其已排队的
-        // step 事件若按 seq 去重追加会让格子短暂多显示一个后端不存在的序号；
-        // 统一走全量 refetch（本地 IPC 毫秒级），前端列表恒等于后端权威列表
-        const unStep = listen('simon_step', () => syncSteps());
-        const unState = listen('simon_state', (e) => {
-            setRunning(e.payload.running);
-            setError(e.payload.error || '');
-            setInfo(e.payload.info || '');
-            // 每次状态事件都以 Rust 侧列表为准同步：自动模式切轮/出错时后端已
-            // 清空步骤并从 1 重新计数，本地旧列表不清会导致新一轮 seq 撞号；
-            // 停止时兼做补齐（停止事件可能早于最后一帧的 step）
-            syncSteps();
-        });
-        return () => {
-            unStep.then((f) => f());
-            unState.then((f) => f());
-        };
-    }, []);
-
-    const stop = () => invoke('simon_stop').catch(() => {});
-    // 自动模式（默认）：后端按游戏状态区文字（开始/正在播放/轮次X/3/错误）自动
-    // 待机、采集与截断，切到本页签时由 index.jsx 自动启动；此处按钮为手动重启
-    const startAuto = () => {
-        setSteps([]);
-        setError('');
-        setInfo('');
-        invoke('simon_start_auto').catch(() => {});
-    };
-    // 自由录制：不限步数、不识别状态文字，手动启停（原三关式 4/5/6 按钮已移除）
-    const startFree = () => {
-        setSteps([]);
-        setError('');
-        setInfo('');
-        invoke('simon_start', { target: 0 }).catch(() => {});
-    };
-
-    return (
-        <div className="lvl-body">
-            <p className="lvl-desc">{t('result.simon.desc')}</p>
-            <div className="lvl-row">
-                {running ? (
-                    <>
-                        <button type="button" className="lvl-btn primary is-danger" onClick={stop}>{t('result.simon.stop')}</button>
-                        <span className="lvl-hint">{t('result.simon.recording', { current: steps.length, total: '' })}</span>
-                    </>
-                ) : (
-                    <>
-                        <button type="button" className="lvl-btn primary" onClick={startAuto}>{t('result.simon.auto')}</button>
-                        <button type="button" className="lvl-btn" onClick={startFree}>{t('result.simon.free')}</button>
-                    </>
-                )}
-                {error && <span className="lvl-error">{error}</span>}
-                {!error && info && <span className="lvl-hint">{info}</span>}
-            </div>
-            {/* 3×2 步骤格（与游戏同布局）：格子中心大字标该符文亮起的顺序序号，
-                录制中实时点亮；不用旧的「1. 名 2. 名」排序条 */}
-            {(!!steps.length || running) && (
-                <>
-                    <div className="simon-grid">
-                        {SIMON_KEYS.map((k, i) => {
-                            const seqs = steps.filter((s) => s.index === i).map((s) => s.seq);
-                            return (
-                                <div className="simon-tile" key={k}>
-                                    <span className="simon-tile-name">{t(`result.rune.${k}`)}</span>
-                                    <span className={`simon-tile-seq ${seqs.length ? '' : 'is-empty'}`}>
-                                        {seqs.length ? seqs.join(' · ') : '–'}
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <p className="lvl-hint">{t('result.simon.grid_hint')}</p>
-                </>
-            )}
-            {!steps.length && !running && <p className="lvl-hint">{t('result.simon.empty')}</p>}
-        </div>
-    );
-}
-
-// ---------------- 第三关 密码破解 ----------------
+// ---------------- 第二关 密码破解 ----------------
 
 export function CipherPage() {
     const { t } = useTranslation();
     const [session, setSession] = useState(loadSession);
-    // 会话只经 rune-store 读写；写操作前重新加载，避免覆盖自动识别刚写入的记录。
+    // 会话只经 rune-store 读写；写操作前重新加载，避免覆盖刚写入的记录。
     // 注意必须返回计算结果本身（setSession 无返回值，表达式体箭头函数会返回 undefined）
     const mutate = (fn) => {
         const next = fn(loadSession());
@@ -269,7 +240,7 @@ export function CipherPage() {
             setBusy(false);
             setError(t('result.cipher.worker_error'));
         };
-        // 挂载时若已有历史（自动识别或上一窗口先记录过），重算推荐而不是停留在初始猜测
+        // 挂载时若已有历史（上一窗口先记录过），重算推荐而不是停留在初始猜测
         if (session.history.length) {
             setBusy(true);
             w.postMessage({ id: ++serial.current, history: session.history });
@@ -287,7 +258,7 @@ export function CipherPage() {
         saveSession(session);
     }, [session]);
 
-    // 自动识别（index.jsx）写入/其他窗口新一局时同步本页并重算推荐（storage 事件不发给同文档写入方）
+    // 其他窗口新一局/写入记录时同步本页并重算推荐（storage 事件不发给同文档写入方）
     useEffect(() => {
         const onChanged = () => {
             const next = loadSession();
@@ -350,7 +321,7 @@ export function CipherPage() {
 
     const undo = () => {
         if (!history.length) return;
-        // 用 mutate 返回的最新会话发 worker（渲染闭包里的 history 可能落后于刚写入的自动识别记录）
+        // 用 mutate 返回的最新会话发 worker（渲染闭包里的 history 可能落后于刚写入的记录）
         const next = mutate(undoLast);
         setBusy(true);
         worker.current.postMessage({ id: ++serial.current, history: next.history });
@@ -365,8 +336,6 @@ export function CipherPage() {
                 <span className="lvl-status">{busy ? t('result.cipher.calculating') : error ||
                     (ended ? t('result.cipher.ended') : t('result.cipher.turn', { turn }))}</span>
                 <span className="lvl-tools">
-                    {/* 识别：与热键 Alt+V 同入口，全屏识别结果自动写入本页并重算推荐 */}
-                    <button type="button" className="lvl-btn" onClick={() => invoke('rune_recognize').catch(() => {})}>{t('result.cipher.recognize')}</button>
                     <button type="button" className="lvl-btn" onClick={newGame}>{t('result.cipher.new_game')}</button>
                     <button type="button" className="lvl-btn" disabled={!history.length} onClick={undo}>{t('result.cipher.undo')}</button>
                 </span>
